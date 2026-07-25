@@ -1,0 +1,5 @@
+interface:
+  display_name: "Bilibili & Douyin Video Learning"
+  short_description: "Turn Bilibili and Douyin videos into Chinese study notes"
+  brand_color: "#00a1d6"
+  default_prompt: "Use $bilibili-video-learning to turn this Bilibili or Douyin video into structured study notes."

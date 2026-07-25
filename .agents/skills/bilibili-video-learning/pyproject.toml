@@ -1,0 +1,28 @@
+[project]
+name = "bilibili-video-learning"
+version = "1.1.0"
+requires-python = ">=3.12"
+dependencies = [
+    "click>=8.1.7",
+    "faster-whisper>=1.2.1",
+    "openai-whisper==20250625",
+    "prompt-toolkit>=3.0.48",
+    "pytest>=8.4.1",
+    "requests>=2.32.4",
+    "setuptools>=75.0.0",
+    "torch==2.11.0+cu128",
+    "torchaudio==2.11.0+cu128",
+    "torchvision==0.26.0+cu128",
+    "you-get>=0.4.1743",
+    "yt-dlp[curl-cffi,default]>=2026.6.9",
+]
+
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu128" }
+torchaudio = { index = "pytorch-cu128" }
+torchvision = { index = "pytorch-cu128" }

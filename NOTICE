@@ -1,0 +1,9 @@
+bilibili-douyin-video-learning
+Copyright 2026 Confidence-huang
+
+This product includes and adapts Agent Harness components from
+HKUDS/CLI-Anything (https://github.com/HKUDS/CLI-Anything),
+licensed under the Apache License, Version 2.0.
+
+yt-dlp, FFmpeg, faster-whisper, and other packages listed in pyproject.toml
+remain governed by their respective licenses.

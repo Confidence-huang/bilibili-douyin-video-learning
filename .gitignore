@@ -1,0 +1,41 @@
+# Python and test artifacts
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Local runtimes and model caches
+.venv/
+.venv-*/
+models/
+model-cache/
+
+# Credentials and browser exports
+.env
+.env.*
+cookies.txt
+cookie.txt
+*.pem
+*.key
+
+# Media, transcripts, and user outputs
+work/
+outputs/
+downloads/
+*.mp3
+*.mp4
+*.wav
+*.mkv
+*.webm
+*.flac
+*.srt
+*.vtt
+
+# Local editor and operating-system files
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+desktop.ini
