@@ -67,7 +67,7 @@ powershell -ExecutionPolicy Bypass -File .\install_windows.ps1 `
 powershell -ExecutionPolicy Bypass -File .\verify.ps1
 ```
 
-验证默认不访问视频平台、不读取浏览器 Cookie、不下载媒体、不启动 GPU ASR。它会核对清单、检查脱敏边界、编译 Python 源码、检查依赖、确认 CLI 版本，并运行 40 项本地/安装态测试。
+验证默认不访问视频平台、不读取浏览器 Cookie、不下载媒体、不启动 GPU ASR。它会核对清单、检查脱敏边界、编译 Python 源码、检查依赖、确认 CLI 版本，并运行 53 项本地/安装态测试。
 
 ## 回退
 

@@ -24,10 +24,16 @@ cli-anything-video-learning --json source normalize "https://www.bilibili.com/vi
 # 只检查元数据
 cli-anything-video-learning --json source inspect BV...
 
+# 只检查抖音公开 SSR 元数据；不下载完整媒体
+cli-anything-video-learning --json source inspect "https://v.douyin.com/..."
+
+# 用 Range bytes=0-1 探测抖音公开画质
+cli-anything-video-learning --json source inspect "https://v.douyin.com/..." --ratios
+
 # 获取可访问字幕；仍不下载媒体
 cli-anything-video-learning --json source inspect BV... --subtitles
 
-# 只有显式 --transcribe 才允许下载音频并运行 ASR
+# B站和抖音都只有显式 --transcribe 才允许下载临时媒体并运行 ASR
 cli-anything-video-learning --json source inspect BV... --subtitles --transcribe small
 
 # 转换用户提供的本地字幕

@@ -46,6 +46,29 @@ cli-anything-video-learning --json source inspect "<B站链接或BV号>" --subti
 
 授权重试仍失败时按普通错误处理，不循环请求 Cookie。
 
+## 抖音公开元数据与画质探测
+
+默认检查只读取匿名 SSR 页面，不下载完整媒体：
+
+```powershell
+cli-anything-video-learning --json source inspect "<抖音链接、分享文本或aweme_id>"
+```
+
+需要查看公开画质档位时，使用小型 Range 请求探测，不下载完整视频：
+
+```powershell
+cli-anything-video-learning --json source inspect "<抖音链接>" --ratios
+```
+
+只有用户明确要求转写时才进入临时媒体与 ASR 路径：
+
+```powershell
+cli-anything-video-learning --json source inspect "<抖音链接>" `
+  --transcribe small --download-method auto --ratio 1080p
+```
+
+抖音检查不接受 B站专用的 `--subtitles`、`--comments` 或 `--cookies`。
+
 ## 本地字幕与笔记
 
 ```powershell

@@ -440,6 +440,45 @@ def download_public_video(source_text: str, output_path: str, ratio: str = "1080
         raise DouyinSSRDownloadError(str(exc), diagnostics) from exc
 
 
+# --- Inspect public metadata without downloading the media file ---
+def inspect_public_metadata(source_text: str) -> Dict[str, Any]:
+    diagnostics: List[Dict[str, Any]] = []                        # 返回值保留每个公开请求步骤。
+
+    try:
+        ttwid_cookie = get_ttwid()                                # 匿名访客 Cookie 只存在于当前进程。
+        add_diagnostic(diagnostics, "get_ttwid", True, "Acquired anonymous ttwid cookie")
+        session = create_public_session(ttwid_cookie)             # 同一会话解析短链并读取 SSR 页面。
+
+        resolved_input = resolve_public_input(source_text, session, diagnostics)
+        aweme_id = resolved_input["aweme_id"]
+        if not aweme_id:                                          # 无真实 ID 时不能生成可复用来源身份。
+            raise RuntimeError("Resolved input does not contain aweme_id")
+
+        share_page = fetch_share_page(aweme_id, session, diagnostics)
+        video_id = extract_video_token(share_page["html"])         # 播放 token 证明页面含公开媒体引用。
+        page_metadata = extract_page_metadata(share_page["html"])  # 标题与简介只来自 SSR HTML。
+        add_diagnostic(
+            diagnostics,
+            "inspect_metadata",
+            True,
+            "Extracted public Douyin metadata without downloading media",
+            aweme_id=aweme_id,
+            video_id=video_id,
+        )
+        return {
+            "platform": "douyin",                                 # 统一 CLI 依靠平台字段渲染反馈。
+            "canonical_url": share_page["canonical_url"],         # 保留平台确认过的公开来源。
+            "aweme_id": aweme_id,
+            "video_id": video_id,
+            "metadata": page_metadata,
+            "diagnostics": diagnostics,
+        }
+    except Exception as exc:
+        if not diagnostics or diagnostics[-1].get("ok") is True:
+            add_diagnostic(diagnostics, "metadata_pipeline", False, f"Public metadata inspection failed: {exc}")
+        raise DouyinSSRDownloadError(str(exc), diagnostics) from exc
+
+
 # --- Inspect public ratios without downloading the full media file ---
 def inspect_public_ratios(source_text: str, watermark: bool = False) -> Dict[str, Any]:
     diagnostics: List[Dict[str, Any]] = []
@@ -456,13 +495,16 @@ def inspect_public_ratios(source_text: str, watermark: bool = False) -> Dict[str
 
         share_page = fetch_share_page(aweme_id, session, diagnostics)
         video_id = extract_video_token(share_page["html"])
+        page_metadata = extract_page_metadata(share_page["html"])  # 画质矩阵同时返回同一页面元数据。
         add_diagnostic(diagnostics, "extract_video_token", True, "Extracted public play token from SSR page", aweme_id=aweme_id, video_id=video_id)
 
         ratio_results = probe_play_ratios(video_id, session, diagnostics, watermark=watermark)
         return {
+            "platform": "douyin",
             "canonical_url": share_page["canonical_url"],
             "aweme_id": aweme_id,
             "video_id": video_id,
+            "metadata": page_metadata,
             "watermark": watermark,
             "ratios": ratio_results,
             "diagnostics": diagnostics,
@@ -474,15 +516,16 @@ def inspect_public_ratios(source_text: str, watermark: bool = False) -> Dict[str
 
 
 # --- Standalone diagnostic CLI ---
-def main() -> int:
+def main(argv: Optional[List[str]] = None) -> int:
     parser = argparse.ArgumentParser(description="Download a public Douyin video through the anonymous SSR share path.")
     parser.add_argument("source", nargs="?", help="Douyin URL, aweme_id, or app share text")
     parser.add_argument("-o", "--output", default="douyin_ssr.mp4", help="Output mp4 path")
     parser.add_argument("--ratio", default="1080p", choices=RATIOS, help="Requested public play ratio")
     parser.add_argument("--watermark", action="store_true", help="Use playwm instead of play")
     parser.add_argument("--parse-only", action="store_true", help="Only parse input; do not make network requests")
+    parser.add_argument("--inspect", action="store_true", help="Read public SSR metadata without downloading media")
     parser.add_argument("--list-ratios", action="store_true", help="Probe 1080p/720p/540p/360p with ranged GET and print availability")
-    args = parser.parse_args()
+    args = parser.parse_args(argv)                                 # 测试可传参数；真实命令默认读取 sys.argv。
 
     if not args.source:
         parser.print_help()
@@ -493,14 +536,19 @@ def main() -> int:
         return 0
 
     try:
-        result = inspect_public_ratios(args.source, watermark=args.watermark) if args.list_ratios else download_public_video(args.source, args.output, ratio=args.ratio, watermark=args.watermark)
+        if args.list_ratios:
+            result = inspect_public_ratios(args.source, watermark=args.watermark)  # Range 探测优先于普通元数据模式。
+        elif args.inspect:
+            result = inspect_public_metadata(args.source)                         # 不探测画质，也不下载媒体。
+        else:
+            result = download_public_video(args.source, args.output, ratio=args.ratio, watermark=args.watermark)
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return 0
     except Exception as exc:
         print(json.dumps({
             "error": str(exc),
             "diagnostics": getattr(exc, "diagnostics", []),
-        }, ensure_ascii=False, indent=2), file=sys.stderr)
+        }, ensure_ascii=False, indent=2))                          # stdout 保持一个 JSON，供 harness 解析失败原因。
         return 1
 
 

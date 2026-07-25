@@ -14,12 +14,14 @@ On Windows after running the package installer, prefer the installed CLI harness
 ```powershell
 cli-anything-video-learning --json doctor status
 cli-anything-video-learning --json source normalize "<url-or-id>"
+cli-anything-video-learning --json source inspect "<bilibili-or-douyin-url>"
 cli-anything-video-learning --json source inspect "<url-or-bvid>" --subtitles
+cli-anything-video-learning --json source inspect "<douyin-url-or-id>" --ratios
 cli-anything-video-learning --json subtitle convert input.vtt --output timeline.json
 cli-anything-video-learning --json note render extraction.json --output note.md
 ```
 
-Use `source inspect --transcribe small` only after the user requests or authorizes ASR. Use `note render --include-transcript` only for user-owned content or an explicitly authorized local transformation. Call scripts directly only for backend-specific diagnostics or options not exposed by the CLI.
+`source inspect` auto-dispatches Bilibili and Douyin. Douyin metadata uses the anonymous SSR page without downloading media; `--ratios` adds tiny ranged probes. Use `source inspect --transcribe small` only after the user requests or authorizes ASR. Use `note render --include-transcript` only for user-owned content or an explicitly authorized local transformation. Call scripts directly only for backend-specific diagnostics or options not exposed by the CLI.
 
 Run anonymous inspection first. If `source inspect` returns `status: "cookie_permission_required"` with exit code `21`, explain why authentication may be needed and obtain explicit permission plus a browser name before retrying with `--cookies edge|chrome|firefox`. A failed authorized retry is a normal error; do not repeatedly request Cookie permission.
 

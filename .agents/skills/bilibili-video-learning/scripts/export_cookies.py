@@ -1,10 +1,14 @@
 #!/usr/bin/env python3
 """
-Export Bilibili cookies from browser for use with yt-dlp / API downloads.
-Usage: python export_cookies.py [browser] [--output cookies.txt]
+Explicitly export decryptable Bilibili cookies into a plaintext Netscape file.
+Normal extraction should use session-scoped --cookies edge|chrome instead. This
+utility refuses to run without a risk acknowledgement and never overwrites an
+existing file unless the caller separately allows that action.
 
-Supported browsers: edge (default), chrome, firefox
+Usage:
+    python export_cookies.py edge --output cookies.txt --acknowledge-plaintext-risk
 """
+import argparse  # 明确解析风险确认、输出路径和覆盖授权。
 import sys
 import os
 import sqlite3
@@ -29,12 +33,15 @@ def build_netscape_cookie_lines(rows):
 
 
 # --- 安全写入一份确实含有明文值的 Cookie 文件 ---
-def write_netscape_cookie_file(rows, output_path):
+def write_netscape_cookie_file(rows, output_path, *, allow_overwrite=False):
     lines, exported_count = build_netscape_cookie_lines(rows)
     if exported_count == 0:                                     # 保留既有文件，避免空结果覆盖可用凭据。
         log("No decryptable Bilibili cookies were exported; browser values are DPAPI encrypted.")
         return False
     output = Path(output_path).expanduser().resolve()
+    if output.exists() and not allow_overwrite:                  # 覆盖现有凭据需要第二个独立授权。
+        log(f"Refusing to overwrite existing plaintext Cookie file: {output}")
+        return False
     output.parent.mkdir(parents=True, exist_ok=True)             # 显式输出目录由用户决定。
     output.write_text("\n".join(lines), encoding="utf-8")
     try:
@@ -45,7 +52,7 @@ def write_netscape_cookie_file(rows, output_path):
     return True
 
 
-def export_edge_cookies(output_path):
+def export_edge_cookies(output_path, *, allow_overwrite=False):
     """Try to export cookies from Edge's Network/Cookies database."""
     # Edge stores cookies in two locations
     edge_profile = os.path.join(
@@ -75,10 +82,7 @@ def export_edge_cookies(output_path):
         print("")
         print("Options:")
         print("  1. Close Edge, then run: python export_cookies.py edge")
-        print("  2. Install 'EditThisCookie' extension in Edge")
-        print("     → Go to bilibili.com")
-        print("     → Click extension icon → Export (Netscape format)")
-        print("     → Save as bilibili_cookies.txt")
+        print("  2. Prefer fetch_bilibili.py --cookies edge for session-scoped access")
         return False
 
     # Extract bilibili cookies
@@ -101,10 +105,10 @@ def export_edge_cookies(output_path):
         print("No Bilibili cookies found. Are you logged into bilibili.com?")
         return False
 
-    return write_netscape_cookie_file(rows, output_path)
+    return write_netscape_cookie_file(rows, output_path, allow_overwrite=allow_overwrite)
 
 
-def export_chrome_cookies(output_path):
+def export_chrome_cookies(output_path, *, allow_overwrite=False):
     """Similar for Chrome."""
     chrome_profile = os.path.join(
         os.environ["LOCALAPPDATA"],
@@ -137,29 +141,42 @@ def export_chrome_cookies(output_path):
     conn.close()
     os.unlink(tmp)
 
-    return write_netscape_cookie_file(rows, output_path)
+    return write_netscape_cookie_file(rows, output_path, allow_overwrite=allow_overwrite)
+
+
+# --- Require two explicit decisions before writing plaintext credentials ---
+def main(argv=None):
+    parser = argparse.ArgumentParser(description="Explicit Bilibili plaintext Cookie export utility.")
+    parser.add_argument("browser", choices=("edge", "chrome"), help="Browser profile to inspect")
+    parser.add_argument("--output", required=True, help="New Netscape Cookie file path")
+    parser.add_argument(
+        "--acknowledge-plaintext-risk",
+        action="store_true",
+        help="Confirm that the output contains sensitive plaintext credentials",
+    )
+    parser.add_argument("--overwrite", action="store_true", help="Also allow replacing an existing output file")
+    args = parser.parse_args(argv)
+
+    if not args.acknowledge_plaintext_risk:                      # 普通调用必须停在任何浏览器访问之前。
+        print(
+            "Refusing to export: add --acknowledge-plaintext-risk only for a separately authorized "
+            "plaintext credential export.",
+            file=sys.stderr,
+        )
+        return 2
+
+    print("WARNING: the output file contains sensitive plaintext credentials.", file=sys.stderr)
+    browser = args.browser
+    if browser == "edge":
+        success = export_edge_cookies(args.output, allow_overwrite=args.overwrite)
+    else:
+        success = export_chrome_cookies(args.output, allow_overwrite=args.overwrite)
+
+    if success:
+        print("\nDelete the plaintext file immediately after the separately authorized operation.")
+        return 0
+    return 1
 
 
 if __name__ == "__main__":
-    browser = "edge"
-    output = "bilibili_cookies.txt"
-
-    for i, arg in enumerate(sys.argv[1:], 1):
-        if arg in ("edge", "chrome", "firefox"):
-            browser = arg
-        elif arg == "--output" and i + 1 < len(sys.argv):
-            output = sys.argv[i + 1]
-        elif not arg.startswith("--"):
-            output = arg
-
-    if browser == "edge":
-        success = export_edge_cookies(output)
-    elif browser == "chrome":
-        success = export_chrome_cookies(output)
-    else:
-        print(f"Browser '{browser}' not supported yet.")
-        success = False
-
-    if success:
-        print(f"\nTo use with fetch_bilibili.py:")
-        print(f"  python fetch_bilibili.py BVxxx --subtitles --transcribe --cookies {output}")
+    raise SystemExit(main())

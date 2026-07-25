@@ -153,6 +153,34 @@ def test_all_encrypted_cookies_do_not_overwrite_existing_file(tmp_path):
     assert output_path.read_text(encoding="utf-8") == "keep-me"
 
 
+def test_plaintext_cookie_export_requires_separate_overwrite_permission(tmp_path):
+    cookies = load_script("export_cookies")
+    output_path = tmp_path / "cookies.txt"
+    output_path.write_text("keep-existing-secret", encoding="utf-8")
+    rows = [(".bilibili.com", "SESSDATA", "new-secret", b"")]
+
+    result = cookies.write_netscape_cookie_file(rows, output_path)
+
+    assert result is False
+    assert output_path.read_text(encoding="utf-8") == "keep-existing-secret"
+
+
+def test_cookie_export_cli_refuses_without_plaintext_acknowledgement(monkeypatch, tmp_path):
+    cookies = load_script("export_cookies")
+    browser_was_read = False                                                       # 风险确认前不能接触浏览器数据库。
+
+    def fake_export(*_args, **_kwargs):
+        nonlocal browser_was_read
+        browser_was_read = True
+        return True
+
+    monkeypatch.setattr(cookies, "export_edge_cookies", fake_export)
+    exit_code = cookies.main(["edge", "--output", str(tmp_path / "cookies.txt")])
+
+    assert exit_code == 2
+    assert browser_was_read is False
+
+
 # --- 笔记默认遵守全文边界 ---
 def _transcript_fixture() -> dict:
     return {
@@ -235,6 +263,175 @@ def test_douyin_cache_rejects_mismatched_real_video_id(tmp_path):
     cache_path.write_text(json.dumps(envelope), encoding="utf-8")
 
     assert douyin.load_cached_result(str(cache_path), identity) is None          # 标记和正文 ID 不一致时 fail closed。
+
+
+# --- 抖音公开检查不能隐式下载媒体 ---
+def test_douyin_metadata_inspection_uses_share_page_only(monkeypatch):
+    douyin_ssr = load_script("douyin_ssr")                                       # 直接验证真实公开 SSR 指令。
+    fake_session = object()                                                      # 网络层全部替换为合成返回值。
+    page_html = (
+        '<meta property="og:title" content="公开课程 - 抖音">'
+        '<meta name="description" content="公开简介">'
+    )
+
+    monkeypatch.setattr(douyin_ssr, "get_ttwid", lambda: "ttwid=fixture")
+    monkeypatch.setattr(douyin_ssr, "create_public_session", lambda _cookie: fake_session)
+    monkeypatch.setattr(douyin_ssr, "resolve_public_input", lambda *_args: {"aweme_id": "7654321098765432100"})
+    monkeypatch.setattr(
+        douyin_ssr,
+        "fetch_share_page",
+        lambda *_args: {"html": page_html, "canonical_url": "https://www.iesdouyin.com/share/video/7654321098765432100/"},
+    )
+    monkeypatch.setattr(douyin_ssr, "extract_video_token", lambda _html: "public-play-token")
+    monkeypatch.setattr(
+        douyin_ssr,
+        "download_public_video",
+        lambda *_args, **_kwargs: pytest.fail("metadata inspection must not download media"),
+    )
+
+    payload = douyin_ssr.inspect_public_metadata("7654321098765432100")
+
+    assert payload["platform"] == "douyin"
+    assert payload["aweme_id"] == "7654321098765432100"
+    assert payload["metadata"] == {"title": "公开课程", "description": "公开简介"}
+
+
+def test_douyin_ssr_failure_remains_machine_readable(monkeypatch, capsys):
+    douyin_ssr = load_script("douyin_ssr")
+    failure = douyin_ssr.DouyinSSRDownloadError(
+        "fixture public page failure",
+        [{"step": "fetch_share_page", "ok": False, "message": "fixture"}],
+    )
+    monkeypatch.setattr(
+        douyin_ssr,
+        "inspect_public_metadata",
+        lambda _source: (_ for _ in ()).throw(failure),
+    )
+
+    exit_code = douyin_ssr.main(["7654321098765432100", "--inspect"])
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+
+    assert exit_code == 1
+    assert captured.err == ""
+    assert payload["error"] == "fixture public page failure"
+    assert payload["diagnostics"][0]["step"] == "fetch_share_page"
+
+
+def test_douyin_ratio_probe_marks_duplicate_payloads(monkeypatch):
+    douyin_ssr = load_script("douyin_ssr")
+    file_sizes = {"1080p": 9000, "720p": 9000, "540p": 5000, "360p": 3000}        # 前两档模拟同一 CDN 文件。
+
+    def fake_probe(play_url, _session, _diagnostics):
+        selected_ratio = next(ratio for ratio in douyin_ssr.RATIOS if f"ratio={ratio}" in play_url)
+        return {
+            "file_size": file_sizes[selected_ratio],
+            "final_url": f"https://cdn.invalid/{file_sizes[selected_ratio]}.mp4",
+            "content_range": f"bytes 0-1/{file_sizes[selected_ratio]}",
+        }
+
+    monkeypatch.setattr(douyin_ssr, "probe_play_url", fake_probe)
+    ratios = douyin_ssr.probe_play_ratios("public-play-token", object(), [])
+
+    assert ratios[0]["is_distinct"] is True
+    assert ratios[1]["is_distinct"] is False
+    assert ratios[1]["same_as"] == "1080p"
+
+
+def test_douyin_ratio_selection_falls_only_to_lower_quality(monkeypatch):
+    douyin_ssr = load_script("douyin_ssr")
+
+    def fake_probe(play_url, _session, _diagnostics):
+        if "ratio=1080p" in play_url:                                             # 请求档失败后只能向下选。
+            raise RuntimeError("fixture unavailable")
+        return {"final_url": "https://cdn.invalid/720.mp4", "file_size": 720}
+
+    monkeypatch.setattr(douyin_ssr, "probe_play_url", fake_probe)
+    selected = douyin_ssr.choose_play_url("public-play-token", "1080p", False, object(), [])
+
+    assert selected["requested_ratio"] == "1080p"
+    assert selected["ratio"] == "720p"
+
+
+def test_douyin_auto_download_falls_back_to_ytdlp(monkeypatch, tmp_path):
+    douyin = load_script("douyin_extract")
+    monkeypatch.setattr(
+        douyin,
+        "download_video_with_ssr",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("fixture SSR failure")),
+    )
+    monkeypatch.setattr(
+        douyin,
+        "download_video_with_ytdlp",
+        lambda *_args, **_kwargs: {
+            "download_method": "ytdlp",
+            "video_path": str(tmp_path / "fixture.mp4"),
+            "metadata": {"video_id": "7654321098765432100"},
+            "diagnostics": [],
+        },
+    )
+
+    payload = douyin.choose_downloaded_video("7654321098765432100", str(tmp_path), download_method="auto")
+
+    assert payload["download_method"] == "ytdlp"
+    assert any(item["step"] == "ssr_pipeline" and item["ok"] is False for item in payload["diagnostics"])
+
+
+class RecordingRuntime:
+    """Capture backend selection without making platform or media requests."""
+
+    def __init__(self):
+        self.calls = []                                                          # 每项保存脚本、参数和超时。
+
+    def run_json_script(self, script_name, arguments, timeout=180):
+        self.calls.append((script_name, arguments, timeout))                     # 调用形态就是本测试的业务结果。
+        return {"platform": "douyin", "metadata": {"title": "fixture"}}
+
+
+def test_unified_douyin_inspect_defaults_to_metadata_only():
+    runtime = RecordingRuntime()
+
+    source.inspect_source("7654321098765432100", runtime=runtime)
+
+    assert runtime.calls == [("douyin_ssr.py", ["7654321098765432100", "--inspect"], 180)]
+
+
+def test_unified_douyin_inspect_enters_asr_only_when_explicit():
+    runtime = RecordingRuntime()
+
+    source.inspect_source(
+        "7654321098765432100",
+        transcribe_model="small",
+        download_method="ssr",
+        ratio="720p",
+        runtime=runtime,
+    )
+
+    script_name, arguments, timeout = runtime.calls[0]
+    assert script_name == "douyin_extract.py"
+    assert arguments == [
+        "7654321098765432100",
+        "--json",
+        "--model", "small",
+        "--download-method", "ssr",
+        "--ratio", "720p",
+    ]
+    assert timeout == 1800
+
+
+def test_unified_douyin_inspect_rejects_bilibili_only_options():
+    with pytest.raises(ValueError, match="does not support"):
+        source.inspect_source("7654321098765432100", include_subtitles=True, runtime=RecordingRuntime())
+
+
+def test_unified_douyin_inspect_rejects_mixed_probe_and_asr():
+    with pytest.raises(ValueError, match="separate Douyin operations"):
+        source.inspect_source(
+            "7654321098765432100",
+            include_ratios=True,
+            transcribe_model="small",
+            runtime=RecordingRuntime(),
+        )
 
 
 # --- 视频正文只能作为不可信资料 ---
@@ -325,12 +522,37 @@ def test_cli_cookie_permission_uses_exit_21(monkeypatch):
         "message": "请明确授权浏览器 Cookie。",
         "error": "Sign in required",
     }
-    monkeypatch.setattr(video_learning_cli, "inspect_bilibili", lambda *_args, **_kwargs: permission_payload)
+    monkeypatch.setattr(video_learning_cli, "inspect_source", lambda *_args, **_kwargs: permission_payload)
     result = CliRunner().invoke(video_learning_cli.cli, ["--json", "source", "inspect", "BV1xx411c7mD"])
     payload = json.loads(result.stdout)
 
     assert result.exit_code == video_learning_cli.COOKIE_PERMISSION_EXIT_CODE
     assert payload["status"] == "cookie_permission_required"
+
+
+def test_cli_dispatches_douyin_inspection(monkeypatch):
+    expected = {
+        "platform": "douyin",
+        "aweme_id": "7654321098765432100",
+        "metadata": {"title": "fixture"},
+        "ratios": [],
+    }
+    monkeypatch.setattr(video_learning_cli, "inspect_source", lambda *_args, **_kwargs: expected)
+
+    result = CliRunner().invoke(
+        video_learning_cli.cli,
+        ["--json", "source", "inspect", "7654321098765432100", "--platform", "douyin", "--ratios"],
+    )
+
+    assert result.exit_code == 0
+    assert json.loads(result.stdout) == expected
+
+
+def test_cli_skill_guides_remain_identical():
+    packaged_skill = SKILL_ROOT / "agent-harness" / "cli_anything" / "video_learning" / "skills" / "SKILL.md"
+    source_skill = SKILL_ROOT / "agent-harness" / "skills" / "cli-anything-video-learning" / "SKILL.md"
+
+    assert packaged_skill.read_bytes() == source_skill.read_bytes()              # 两个安装入口不得静默漂移。
 
 
 # --- 最终文件与来源身份保持可恢复、可比较 ---

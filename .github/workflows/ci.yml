@@ -1,0 +1,62 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows-source-and-offline-tests:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    env:
+      PYTHONUTF8: "1"
+
+    steps:
+      - name: Check out the exact commit
+        uses: actions/checkout@v4
+
+      - name: Install Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.11.17"
+
+      - name: Validate source and privacy boundaries
+        shell: pwsh
+        run: |
+          $skillRoot = Join-Path $PWD ".agents\skills\bilibili-video-learning"
+          .\verify.ps1 -SkillRoot $skillRoot -SkipRuntime
+          uv run --isolated --with pyyaml python .\tools\validate_repository.py
+
+      - name: Confirm the committed dependency lock
+        shell: pwsh
+        run: |
+          $skillRoot = Join-Path $PWD ".agents\skills\bilibili-video-learning"
+          uv lock --check --project $skillRoot
+
+      - name: Build a lightweight test environment
+        shell: pwsh
+        run: |
+          $skillRoot = Join-Path $PWD ".agents\skills\bilibili-video-learning"
+          uv venv .ci-venv --python 3.12
+          uv pip install --python .\.ci-venv\Scripts\python.exe pytest click prompt-toolkit requests setuptools
+          uv pip install --python .\.ci-venv\Scripts\python.exe --no-deps -e "$skillRoot\agent-harness"
+
+      - name: Run offline tests without the multi-GB GPU runtime
+        shell: pwsh
+        run: |
+          $skillRoot = Join-Path $PWD ".agents\skills\bilibili-video-learning"
+          $env:BILIBILI_VIDEO_LEARNING_ROOT = $skillRoot
+          $env:BILIBILI_VIDEO_LEARNING_PYTHON = (Resolve-Path ".\.ci-venv\Scripts\python.exe").Path
+          $env:CLI_ANYTHING_FORCE_INSTALLED = "1"
+          $env:VIDEO_LEARNING_SKIP_INSTALLED_RUNTIME_TESTS = "1"
+          $env:PATH = "$(Resolve-Path '.\.ci-venv\Scripts');$env:PATH"
+          .\.ci-venv\Scripts\python.exe -m pytest -q "$skillRoot\agent-harness\cli_anything\video_learning\tests"

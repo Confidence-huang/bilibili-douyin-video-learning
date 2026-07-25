@@ -1,5 +1,7 @@
 # Bilibili & Douyin Video Learning
 
+[![CI](https://github.com/Confidence-huang/bilibili-douyin-video-learning/actions/workflows/ci.yml/badge.svg)](https://github.com/Confidence-huang/bilibili-douyin-video-learning/actions/workflows/ci.yml)
+
 A Windows-first Agent Skill that turns accessible Bilibili and Douyin videos into structured learning notes.
 
 这个 Skill 可以提取公开可访问的视频元数据、字幕和授权转写内容，并生成中文摘要、复习笔记、行动清单、问答与 Anki 材料。它不会绕过付费、会员、私密、地区或平台风控限制。
@@ -10,7 +12,7 @@ A Windows-first Agent Skill that turns accessible Bilibili and Douyin videos int
 - 优先使用公开字幕；只有用户明确要求时才下载临时音频并运行 ASR。
 - 严格保留 B站分 P，错误的 `p=` 不会静默切换到 P1。
 - 把 Cookie、token、签名 URL 和临时路径从诊断输出中脱敏。
-- 提供稳定的 JSON CLI，用于来源解析、字幕转换、笔记渲染和本地诊断。
+- 提供稳定的 JSON CLI，用于 B站/抖音来源检查、字幕转换、笔记渲染和本地诊断。
 
 ## 安装
 
@@ -26,9 +28,17 @@ powershell -ExecutionPolicy Bypass -File .\verify.ps1
 只安装 Skill 源码、不下载大型 ASR 运行环境：
 
 ```powershell
+npx skills add Confidence-huang/bilibili-douyin-video-learning --skill bilibili-video-learning -g -y
+```
+
+或者使用仓库自带的可恢复安装器：
+
+```powershell
 powershell -ExecutionPolicy Bypass -File .\install_windows.ps1 -SkipRuntime -SkipPathUpdate
 powershell -ExecutionPolicy Bypass -File .\verify.ps1 -SkipRuntime
 ```
+
+`npx skills add` 只安装 Skill 源码；完整 CLI、FFmpeg 调用和 ASR 仍需运行 `install_windows.ps1`。
 
 完整安装说明见 [INSTALL.md](INSTALL.md)，命令示例见 [USAGE.md](USAGE.md)，安全边界见 [SECURITY.md](SECURITY.md)。
 
@@ -44,6 +54,7 @@ $bilibili-video-learning 帮我学习这个视频：<B站或抖音链接>
 
 ```powershell
 cli-anything-video-learning --json doctor status
+cli-anything-video-learning --json source inspect "<B站或抖音链接>"
 ```
 
 仓库名同时包含 Bilibili 和 Douyin；Skill 调用名继续使用 `$bilibili-video-learning`，以兼容现有安装。

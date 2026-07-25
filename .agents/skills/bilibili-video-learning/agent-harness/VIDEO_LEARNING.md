@@ -9,7 +9,7 @@
 | 能力 | 真实后端 | CLI 的职责 |
 |---|---|---|
 | B站元数据与字幕 | `fetch_bilibili.py`、yt-dlp、Bilibili 公开 API | 固定安全参数、严格分 P、规范错误与 JSON |
-| 抖音公开输入解析 | `douyin_ssr.py` | 只解析公开 URL、分享文本和 aweme_id |
+| 抖音公开检查 | `douyin_ssr.py`、`douyin_extract.py` | 默认读取 SSR 元数据；显式选项才探测画质或运行 ASR |
 | 本地字幕转换 | `convert_subtitle.py` | 统一为 `start/end/text` 时间线 |
 | 音视频转写 | FFmpeg、faster-whisper/CTranslate2 | 显式触发，不在元数据命令里隐式下载 |
 | 学习笔记 | Skill 的 Markdown 渲染函数 | 默认不复制全文；显式授权后才能包含转录正文 |
@@ -17,7 +17,7 @@
 ## 命令结构
 
 - `source normalize`：解析 B站或抖音输入，不下载媒体。
-- `source inspect`：提取 B站元数据；`--subtitles` 只取字幕，`--transcribe` 才允许音频与 ASR。
+- `source inspect`：自动检查 B站或抖音；抖音默认只取 SSR 元数据，`--ratios` 使用微小 Range 请求，`--transcribe` 才允许媒体与 ASR。
 - `subtitle convert`：把 SRT、VTT、ASS 或平台 JSON 转为统一 JSON。
 - `note render`：从本地结果 JSON 生成学习笔记；默认省略完整转录。
 - `doctor status`：检查 Skill 根、GPU Python、yt-dlp、FFmpeg、直接依赖和 Obsidian 路径。
@@ -34,7 +34,7 @@
 
 ## 安全边界
 
-- `source inspect` 必须使用 yt-dlp 的模拟/跳过下载参数，运行后不得生成媒体文件。
+- 默认 `source inspect` 不得生成媒体文件；B站使用 yt-dlp 跳过下载，抖音只读取 SSR 页面，只有显式 `--transcribe` 可进入媒体路径。
 - 不存在或非法的 `p=` 必须失败，不得静默改为 P1。
 - Cookie 不进入项目文件、日志或 JSON；优先使用 yt-dlp 的浏览器 Cookie 能力。
 - 默认 Markdown 不包含完整字幕或 ASR 全文；`--include-transcript` 只用于用户自有或明确授权的本地处理。

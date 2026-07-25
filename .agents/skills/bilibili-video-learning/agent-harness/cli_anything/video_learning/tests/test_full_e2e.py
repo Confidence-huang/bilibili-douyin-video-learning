@@ -47,7 +47,7 @@ class TestCLISubprocess:
 
     def test_version(self):
         result = self._run(["--version"])
-        assert "1.1.0" in result.stdout
+        assert "1.2.0" in result.stdout
 
     def test_normalize_bilibili_json(self):
         result = self._run(["--json", "source", "normalize", "https://www.bilibili.com/video/BV1xx411c7mD?p=2"])
@@ -124,6 +124,8 @@ class TestCLISubprocess:
         assert "已授权正文" in output_path.read_text(encoding="utf-8")
 
     def test_doctor_uses_real_local_backends(self):
+        if os.environ.get("VIDEO_LEARNING_SKIP_INSTALLED_RUNTIME_TESTS") == "1":
+            pytest.skip("CI source suite intentionally omits the multi-GB installed GPU runtime")
         result = self._run(["--json", "doctor", "status"])
         payload = json.loads(result.stdout)
         assert Path(payload["skill_root"]).is_dir()

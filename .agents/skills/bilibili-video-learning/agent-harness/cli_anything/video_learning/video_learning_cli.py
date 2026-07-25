@@ -14,7 +14,7 @@ import click  # CLI-Anything 的标准命令组框架。
 from cli_anything.video_learning import __version__  # banner 与 --version 使用同一版本。
 from cli_anything.video_learning.core.doctor import inspect_runtime  # 真实环境预检指令。
 from cli_anything.video_learning.core.note import render_note  # 本地 extraction JSON -> Markdown。
-from cli_anything.video_learning.core.source import inspect_bilibili, normalize_source  # 平台来源指令。
+from cli_anything.video_learning.core.source import inspect_source, normalize_source  # 平台来源指令。
 from cli_anything.video_learning.core.subtitle import convert_subtitle  # 本地字幕 -> 时间线。
 from cli_anything.video_learning.utils.repl_skin import ReplSkin  # 复用 CLI-Anything 官方交互外观。
 from cli_anything.video_learning.utils.security import sanitize_text  # CLI 未处理异常统一脱敏后再反馈。
@@ -87,29 +87,59 @@ def normalize_command(source_text: str, platform: str) -> None:
 
 @source_group.command("inspect")
 @click.argument("source_text")
+@click.option("--platform", type=click.Choice(["auto", "bilibili", "douyin"]), default="auto", show_default=True)
 @click.option("--subtitles", is_flag=True, help="Fetch accessible subtitle tracks without media download")
 @click.option("--transcribe", "transcribe_model", type=click.Choice(["tiny", "base", "small", "medium", "large"]), help="Explicitly allow audio download and ASR")
 @click.option("--comments", is_flag=True, help="Request comments through the existing yt-dlp backend")
 @click.option("--cookies", help="Browser name or Netscape cookie file; values are never echoed")
+@click.option("--ratios", "include_ratios", is_flag=True, help="Probe public Douyin ratios with tiny ranged requests")
+@click.option("--download-method", type=click.Choice(["auto", "ssr", "ytdlp"]), default="auto", show_default=True)
+@click.option("--ratio", type=click.Choice(["1080p", "720p", "540p", "360p"]), default="1080p", show_default=True)
+@click.option("--watermark", is_flag=True, help="Use the Douyin playwm endpoint for ratio probes or explicit ASR")
 @handle_error
-def inspect_command(source_text: str, subtitles: bool, transcribe_model: str | None, comments: bool, cookies: str | None) -> None:
-    """Inspect Bilibili metadata; media is touched only when --transcribe is present."""
-    payload = inspect_bilibili(
+def inspect_command(
+    source_text: str,
+    platform: str,
+    subtitles: bool,
+    transcribe_model: str | None,
+    comments: bool,
+    cookies: str | None,
+    include_ratios: bool,
+    download_method: str,
+    ratio: str,
+    watermark: bool,
+) -> None:
+    """Inspect Bilibili or Douyin; media is touched only when --transcribe is present."""
+    payload = inspect_source(
         source_text,
+        platform=platform,
         include_subtitles=subtitles,
         transcribe_model=transcribe_model,
         include_comments=comments,
         cookies=cookies,
+        include_ratios=include_ratios,
+        download_method=download_method,
+        ratio=ratio,
+        watermark=watermark,
     )
     if payload.get("status") == "cookie_permission_required":
         emit_result(payload, payload["message"])                              # 状态先输出，再用专用退出码结束。
         raise click.exceptions.Exit(COOKIE_PERMISSION_EXIT_CODE)
-    human_text = (
-        f"{payload.get('title', '(untitled)')}\n"
-        f"Author: {payload.get('author', '')}\n"
-        f"Selected part: P{payload.get('selected_page', payload.get('requested_page', 1))}\n"
-        f"Subtitle tracks: {len(payload.get('subtitles', []))}"
-    )
+    if payload.get("platform") == "douyin":
+        metadata = payload.get("metadata") or {}                                # SSR 字段集中在 metadata 内。
+        human_text = (
+            f"{metadata.get('title', '(untitled)')}\n"
+            f"Aweme ID: {payload.get('aweme_id', '')}\n"
+            f"Ratios: {len(payload.get('ratios', []))}\n"
+            f"Transcript segments: {payload.get('segment_count', 0)}"
+        )
+    else:
+        human_text = (
+            f"{payload.get('title', '(untitled)')}\n"
+            f"Author: {payload.get('author', '')}\n"
+            f"Selected part: P{payload.get('selected_page', payload.get('requested_page', 1))}\n"
+            f"Subtitle tracks: {len(payload.get('subtitles', []))}"
+        )
     emit_result(payload, human_text)
 
 
@@ -181,7 +211,7 @@ def repl() -> None:
     prompt_session = skin.create_prompt_session()
     command_help = {
         "source normalize <input>": "normalize Bilibili/Douyin URL, ID, or share text",
-        "source inspect <bilibili>": "inspect metadata; add --subtitles or explicit --transcribe",
+        "source inspect <input>": "inspect Bilibili/Douyin metadata; add platform-specific options",
         "subtitle convert <file>": "convert a local subtitle to normalized JSON",
         "note render <result.json>": "render learning Markdown without full transcript by default",
         "doctor status": "verify the live Skill and hard dependencies",
