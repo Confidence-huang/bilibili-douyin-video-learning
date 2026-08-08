@@ -2,6 +2,15 @@
 
 All notable public changes are recorded here.
 
+## 1.3.0 - 2026-08-08
+
+- Added one canonical Windows/Linux Skill distribution without changing the `$bilibili-video-learning` invocation name.
+- Added transactional Linux source/runtime installation, verification, and a user-scoped CLI wrapper with no sudo or system configuration changes.
+- Split ASR and Windows CUDA compatibility dependencies into explicit uv profiles while preserving the existing Windows `.venv-gpu` route.
+- Added shared FFmpeg and runtime-Python resolution for `.venv` and `.venv-gpu` layouts.
+- Added layered Skill lifecycle probes and Ubuntu/Windows offline CI jobs.
+- Kept rendered logged-in web-course capture in the separate `course-audio-capture` Skill.
+
 ## 1.2.0 - 2026-07-25
 
 - Added platform-dispatched `source inspect` for Bilibili and Douyin.

@@ -47,18 +47,20 @@ class SkillRuntime:
                 return resolved
         raise RuntimeError("Could not locate a complete bilibili-video-learning Skill root")
 
-    # --- 优先使用 Skill 自带 GPU uv Python ---
+    # --- 发现 Skill 自带的 CPU 或 GPU uv Python ---
     def find_runtime_python(self, explicit_path: str | Path | None = None) -> Path:
         configured_path = os.environ.get("BILIBILI_VIDEO_LEARNING_PYTHON")      # 允许测试或其他机器覆盖解释器。
         candidates = [
             explicit_path,
             configured_path,
+            self.skill_root / ".venv" / "Scripts" / "python.exe",
+            self.skill_root / ".venv" / "bin" / "python",
             self.skill_root / ".venv-gpu" / "Scripts" / "python.exe",
             self.skill_root / ".venv-gpu" / "bin" / "python",
         ]
         for candidate in candidates:
             if candidate and Path(candidate).expanduser().is_file():
-                return Path(candidate).expanduser().resolve()
+                return Path(candidate).expanduser().absolute()                  # POSIX venv Python is a symlink; resolving it loses the venv.
         raise RuntimeError(f"Video-learning Python environment is missing under: {self.skill_root}")
 
     # --- 运行会输出一个 JSON 文档的生产脚本 ---
@@ -116,6 +118,11 @@ class SkillRuntime:
         path_text = path_text or shutil.which(tool_name)
         if not path_text:
             return {"ok": False, "path": None, "version": None, "error": f"{tool_name} not found"}
+        return self.inspect_executable(path_text, version_arguments)
+
+    # --- 检查已经由 Skill 解析出的可执行文件 ---
+    def inspect_executable(self, executable: str | Path, version_arguments: list[str]) -> dict:
+        path_text = str(Path(executable).expanduser().resolve())
         completed = subprocess.run(
             [path_text, *version_arguments],
             capture_output=True,

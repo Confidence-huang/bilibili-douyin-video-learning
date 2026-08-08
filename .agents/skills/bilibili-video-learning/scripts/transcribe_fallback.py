@@ -12,29 +12,14 @@ import sys
 import json
 import tempfile
 import subprocess
-import shutil
 from pathlib import Path
 
 from speech_to_text import transcribe_audio_file                                  # 统一使用 faster-whisper 优先的本机 ASR 入口
+from media_tools import find_ffmpeg                                              # 所有媒体流程共用跨平台 FFmpeg 入口。
 
 def _find_ffmpeg():
-    """Find ffmpeg binary."""
-    ffmpeg = shutil.which("ffmpeg")
-    if not ffmpeg:
-        # Try common Windows locations
-        for loc in [
-            "C:\\ProgramData\\chocolatey\\bin\\ffmpeg.exe",
-            "C:\\ffmpeg\\bin\\ffmpeg.exe",
-            os.path.expanduser("~\\scoop\\shims\\ffmpeg.exe"),
-        ]:
-            if os.path.exists(loc):
-                ffmpeg = loc
-                break
-    if not ffmpeg:
-        raise RuntimeError(
-            "ffmpeg not found. Install it: choco install ffmpeg  or  winget install ffmpeg"
-        )
-    return ffmpeg
+    """Keep the historical private name while using the shared resolver."""
+    return find_ffmpeg()
 
 
 def download_video(url_or_bvid: str, output_dir: str) -> str:

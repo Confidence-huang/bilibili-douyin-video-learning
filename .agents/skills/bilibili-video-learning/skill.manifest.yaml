@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "name": "bilibili-video-learning",
+  "requiredLayers": ["static", "runtime", "behavior"],
+  "runtime": {
+    "command": "{python}",
+    "arguments": ["{skillRoot}/tests/runtime.py"],
+    "timeoutSeconds": 30,
+    "runOnInstall": true,
+    "expect": {
+      "exitCode": 0,
+      "stdoutJsonEquals": {"status": "PASS", "runtime": "portable-python"}
+    }
+  },
+  "behavior": {
+    "command": "{python}",
+    "arguments": ["{skillRoot}/tests/behavior.py"],
+    "timeoutSeconds": 30,
+    "runOnInstall": true,
+    "expect": {
+      "exitCode": 0,
+      "stdoutJsonEquals": {"status": "PASS", "platform": "bilibili", "page": 2}
+    }
+  }
+}

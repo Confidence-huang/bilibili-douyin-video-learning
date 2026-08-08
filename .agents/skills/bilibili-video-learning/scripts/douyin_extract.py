@@ -8,7 +8,7 @@ public play/playwm endpoint. If that public path fails in auto mode, the script
 falls back to the existing yt-dlp download path, then continues through ffmpeg
 audio extraction and faster-whisper transcription.
 
-Requires: requests, yt-dlp fallback, ffmpeg (in PATH), faster-whisper/CTranslate2
+Requires: requests, yt-dlp fallback, shared FFmpeg resolver, faster-whisper/CTranslate2
 
 Usage:
     python douyin_extract.py <douyin_url_or_id_or_share_text> --download-method auto
@@ -23,7 +23,6 @@ import sys
 import json
 import tempfile
 import subprocess
-import shutil
 from pathlib import Path
 from datetime import datetime
 
@@ -31,6 +30,7 @@ import douyin_ssr
 from speech_to_text import transcribe_audio_file                                  # 统一使用 faster-whisper 优先的本机 ASR 入口
 from runtime_output import log, sanitize_diagnostics, sanitize_text             # 进度和结构化错误共用脱敏边界。
 from file_output import write_json_atomically, write_text_atomically             # 缓存和最终 Markdown 只原子发布完整文件。
+from media_tools import find_ffmpeg                                              # 所有平台共用同一 FFmpeg 解析规则。
 
 
 CACHE_SCHEMA_VERSION = 2                                                         # v2 缓存带参数身份和真实视频 ID 双重校验。
@@ -46,32 +46,19 @@ def configure_output_encoding() -> None:
 
 
 def _find_ffmpeg():
-    ffmpeg = shutil.which("ffmpeg")
-    if not ffmpeg:
-        for loc in [
-            "C:\\ProgramData\\chocolatey\\bin\\ffmpeg.exe",
-            "C:\\ffmpeg\\bin\\ffmpeg.exe",
-            os.path.expanduser("~\\scoop\\shims\\ffmpeg.exe"),
-        ]:
-            if os.path.exists(loc):
-                ffmpeg = loc
-                break
-    if not ffmpeg:
-        raise RuntimeError("ffmpeg not found. Install: choco install ffmpeg / winget install ffmpeg")
-    return ffmpeg
+    return find_ffmpeg()
 
 
 def _find_yt_dlp():
-    ytdlp = shutil.which("yt-dlp")
-    if not ytdlp:
-        try:
-            subprocess.run([sys.executable, "-m", "yt_dlp", "--version"],
-                           capture_output=True, timeout=5)
-            return [sys.executable, "-m", "yt_dlp"]
-        except Exception:
-            pass
-        raise RuntimeError("yt-dlp not found. Install: pip install yt-dlp")
-    return [ytdlp]
+    result = subprocess.run(
+        [sys.executable, "-m", "yt_dlp", "--version"],
+        capture_output=True,
+        timeout=5,
+        check=False,
+    )
+    if result.returncode != 0:
+        raise RuntimeError("Skill-owned yt-dlp module is unavailable")
+    return [sys.executable, "-m", "yt_dlp"]
 
 
 def _run(cmd, timeout=120, desc=""):

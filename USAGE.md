@@ -1,5 +1,7 @@
 # 使用示例
 
+安装后的 `cli-anything-video-learning` 命令在 Windows PowerShell 与 Linux shell 中保持一致；以下单行命令可直接用于两种平台。
+
 ## 在 Codex 中调用
 
 安装并重新打开 Codex 后，直接输入：
@@ -82,6 +84,12 @@ cli-anything-video-learning --json note render .\extraction.json --output .\note
 
 ```powershell
 $env:BILIBILI_OBSIDIAN_VAULT = "E:\MyNotes"
+```
+
+Linux：
+
+```bash
+export BILIBILI_OBSIDIAN_VAULT="$HOME/Notes"
 ```
 
 未配置时使用当前用户的 `~/Notes`，不会继承分享者的笔记路径。

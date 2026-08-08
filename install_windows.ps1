@@ -87,6 +87,16 @@ function Install-SkillSource {
     $backupRoot = $null                                      # 仅在确有旧目录时记录恢复位置。
     New-Item -ItemType Directory -Force -Path (Split-Path -Parent $TargetRoot) | Out-Null
     Copy-Item -LiteralPath $SourceRoot -Destination $stageRoot -Recurse
+    $stageArtifacts = @(Get-ChildItem -LiteralPath $stageRoot -Recurse -Force | Where-Object {
+        $_.Name -in @(".venv", ".venv-gpu", ".pytest_cache", "__pycache__") -or
+        $_.Name -like "*.egg-info" -or
+        $_.Extension -eq ".pyc"
+    } | Sort-Object { $_.FullName.Length } -Descending)
+    foreach ($artifact in $stageArtifacts) {
+        if (Test-Path -LiteralPath $artifact.FullName) {
+            Remove-Item -LiteralPath $artifact.FullName -Recurse -Force         # 仅清理本次事务暂存副本。
+        }
+    }
     if (-not (Test-Path -LiteralPath (Join-Path $stageRoot "SKILL.md") -PathType Leaf)) {
         throw "Staged Skill is incomplete: $stageRoot"
     }
@@ -179,7 +189,10 @@ if (-not $uvCommand) {
 $runtimePython = Join-Path $destination ".venv-gpu\Scripts\python.exe"
 $harnessRoot = Join-Path $destination "agent-harness"
 $env:UV_PROJECT_ENVIRONMENT = Join-Path $destination ".venv-gpu"
-Invoke-InstallCommand -Program $uvCommand.Source -Arguments @("sync", "--project", $destination, "--locked", "--python", "3.12")
+Invoke-InstallCommand -Program $uvCommand.Source -Arguments @(
+    "sync", "--project", $destination, "--locked", "--python", "3.12",
+    "--extra", "asr", "--extra", "cuda-compat"
+)
 Invoke-InstallCommand -Program $uvCommand.Source -Arguments @("pip", "install", "--python", $runtimePython, "--no-build-isolation", "--no-deps", "-e", $harnessRoot)
 Install-CommandWrapper -BinRoot $commandDirectory -SkillRoot $destination -RuntimePython $runtimePython
 if (-not $SkipPathUpdate) {
