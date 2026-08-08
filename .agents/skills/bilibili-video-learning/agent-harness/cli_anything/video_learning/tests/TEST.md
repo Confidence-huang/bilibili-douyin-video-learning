@@ -69,10 +69,10 @@
 
 安装环境：
 
-- Linux CLI Python：`<skill-root>/.venv/bin/python`
+- Linux CLI Python：`${XDG_DATA_HOME:-$HOME/.local/share}/bilibili-video-learning/runtime/bin/python`
 - Windows CLI Python：`<skill-root>\.venv-gpu\Scripts\python.exe`
 - 安装方式：平台安装器调用 `uv pip install --python <CLI-Python> --no-deps -e <skill-root>/agent-harness`
-- 安装入口：`cli-anything-video-learning` 1.3.1
+- 安装入口：`cli-anything-video-learning` 1.3.2
 - 运行约束：`CLI_ANYTHING_FORCE_INSTALLED=1`，测试不得回退到源码模块
 
 执行命令：
@@ -91,7 +91,7 @@ python -m pytest cli_anything/video_learning/tests -q
 
 - 61 个离线/安装态测试通过，覆盖安全 yt-dlp 参数、严格分 P、字幕解析、Cookie 风险授权、默认省略全文、诊断脱敏、原子写入、来源身份、抖音 SSR/缓存和跨平台运行时入口。
 - 轻量 CI 环境跳过唯一要求完整 ASR 运行时的 doctor 测试；默认套件不联网、不下载媒体、不读取浏览器 Cookie，也不启动模型推理。
-- 隔离 Linux 完整安装验收通过：依赖一致、CLI 1.3.1、本地合成 MP4 转 16 kHz 单声道 WAV、doctor 找到 `.venv`、yt-dlp、imageio-ffmpeg、faster-whisper 和 CTranslate2。
+- 隔离 Linux 完整安装验收通过：依赖一致、CLI 1.3.2、本地合成 MP4 转 16 kHz 单声道 WAV、doctor 找到外置 runtime、yt-dlp、imageio-ffmpeg、faster-whisper 和 CTranslate2。
 - Skill Creator 校验通过；Skill Lifecycle Manager 的 Static、Runtime、Behavior 三层验证均通过。
 - Windows CUDA 完整安装与真实 GPU ASR 留给 Windows GitHub Actions 和显式授权的真实硬件 smoke；本地 Linux 验收不冒充 Windows GPU 证据。
 

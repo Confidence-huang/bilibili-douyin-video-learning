@@ -2,6 +2,14 @@
 
 All notable public changes are recorded here.
 
+## 1.3.2 - 2026-08-08
+
+- Move the default Linux Python runtime outside the lifecycle-scanned Skill tree
+  so dependency packages cannot appear as nested Skills.
+- Add explicit `--runtime-root` installation and verification support, reject a
+  runtime placed inside the Skill destination, and retain environment-based
+  runtime discovery for wrappers and custom installations.
+
 ## 1.3.1 - 2026-08-08
 
 - Renamed the two embedded CLI reference documents from `SKILL.md` to

@@ -4,13 +4,13 @@
 
 ## 安装
 
-Windows 运行时为 `<skill-root>\.venv-gpu\Scripts\python.exe`，Linux 运行时为 `<skill-root>/.venv/bin/python`。仓库根目录的平台安装器会自动安装 harness；手工诊断时可执行：
+Windows 运行时为 `<skill-root>\.venv-gpu\Scripts\python.exe`，Linux 运行时默认为 `${XDG_DATA_HOME:-$HOME/.local/share}/bilibili-video-learning/runtime/bin/python`。仓库根目录的平台安装器会自动安装 harness；手工诊断时可执行：
 
 ```text
 uv pip install --python <runtime-python> --no-deps -e <skill-root>/agent-harness
 ```
 
-运行时还需要完整 Skill，以及 Skill 自己的 `.venv` 或 `.venv-gpu`。可用环境变量覆盖发现路径：
+运行时还需要完整 Skill。Windows 使用 Skill 内的 `.venv-gpu`；Linux 将 runtime 放在 Skill 树外，避免依赖包被生命周期扫描器识别成嵌套 Skill。可用环境变量覆盖发现路径：
 
 - `BILIBILI_VIDEO_LEARNING_ROOT`
 - `BILIBILI_VIDEO_LEARNING_PYTHON`

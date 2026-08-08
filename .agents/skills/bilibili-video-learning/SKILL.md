@@ -36,9 +36,9 @@ Implementation details and diagnostic backends:
 - Bilibili page rule: an explicit malformed, zero, or unavailable `p=` is a hard error. Never silently switch the request to P1.
 - Media rule: metadata and subtitle operations use yt-dlp's skip-download path. Only an explicit transcription request may download temporary audio for ASR.
 - yt-dlp fallback rule: use yt-dlp for metadata, subtitles, and emergency media fallback. Its current README documents `curl_cffi` browser impersonation for TLS-fingerprinted sites, `--proxy`, `--socket-timeout`, `--cookies-from-browser`, retry controls, and `-x --audio-format` post-processing; prefer this documented path before inventing site-specific flags.
-- Python for Bilibili/Douyin ASR is `<skill-root>\.venv-gpu\Scripts\python.exe` on Windows and `<skill-root>/.venv/bin/python` on Linux.
+- Python for Bilibili/Douyin ASR is `<skill-root>\.venv-gpu\Scripts\python.exe` on Windows and `${XDG_DATA_HOME:-$HOME/.local/share}/bilibili-video-learning/runtime/bin/python` on Linux.
   - Windows installs the locked `asr` and `cuda-compat` profiles. Confirm the actual script reports `device=cuda` / `compute_type=float16` and verify `nvidia-smi` before claiming GPU acceleration.
-  - Linux installs the locked `asr` profile only. Without an exposed CUDA device, faster-whisper selects CPU/int8; the installer never installs CUDA, changes drivers, invokes sudo, or creates a background service.
+  - Linux installs the locked `asr` profile only. The runtime stays outside the lifecycle-scanned Skill tree so dependency packages cannot appear as nested Skills. Without an exposed CUDA device, faster-whisper selects CPU/int8; the installer never installs CUDA, changes drivers, invokes sudo, or creates a background service.
   - For long audio/video transcription on a supported NVIDIA GPU, prefer `faster-whisper + CTranslate2 + cuda + float16`. Use `openai-whisper` only on the Windows compatibility profile after faster-whisper has actually failed.
   - The system or uv bootstrap interpreter is not the normal ASR entrypoint. Use the Skill-owned runtime for video work.
 - Douyin default command shape: `python ...\douyin_extract.py <url_or_id> --download-method auto --ratio 1080p --model small -o <dir>`. Use `--download-method ssr` to force the public SSR path, or `--download-method ytdlp` to force the older extractor path.
