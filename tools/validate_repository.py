@@ -16,7 +16,7 @@ import yaml  # Skill frontmatter uses the same YAML format consumed by agent hos
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]  # tools/ is one level below the Git root.
 SKILL_ROOT = REPOSITORY_ROOT / ".agents" / "skills" / "bilibili-video-learning"
-TEXT_SUFFIXES = {".md", ".py", ".toml", ".yaml", ".yml", ".json", ".txt", ".ps1"}
+TEXT_SUFFIXES = {".md", ".py", ".toml", ".yaml", ".yml", ".json", ".txt", ".ps1", ".sh"}
 FORBIDDEN_SUFFIXES = {".mp3", ".mp4", ".wav", ".mkv", ".pem", ".key"}
 MACHINE_PATTERN = re.compile(
     r"C:\\Users\\[^\\]+|[D-F]:\\(?:CodexProjects|Notes|Archive|Study)|127\.0\.0\.1:\d{2,5}",

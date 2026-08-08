@@ -103,7 +103,11 @@ $requiredFiles = @(
     "pyproject.toml",
     "uv.lock",
     "scripts\fetch_bilibili.py",
+    "scripts\media_tools.py",
     "scripts\runtime_output.py",
+    "skill.manifest.yaml",
+    "tests\runtime.py",
+    "tests\behavior.py",
     "agent-harness\setup.py",
     "agent-harness\cli_anything\video_learning\video_learning_cli.py"
 )
@@ -115,6 +119,7 @@ foreach ($relativePath in $requiredFiles) {
 
 $sourceFiles = @(Get-ChildItem -LiteralPath $resolvedSkillRoot -Recurse -Force -File | Where-Object {
     $_.FullName -notmatch '\\.venv-gpu\\' -and              # 安装环境不是分享源码的一部分。
+    $_.FullName -notmatch '\\.venv\\' -and
     $_.FullName -notmatch '\\__pycache__\\' -and
     $_.FullName -notmatch '\\.pytest_cache\\' -and
     $_.FullName -notmatch '\\.egg-info\\' -and

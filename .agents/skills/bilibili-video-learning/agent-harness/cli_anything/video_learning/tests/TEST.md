@@ -4,6 +4,7 @@
 
 - `test_core.py`：核心单元测试，使用合成输入和 monkeypatch，不访问网络。
 - `test_full_e2e.py`：真实文件与安装态 CLI subprocess 测试，不设置 `cwd`。
+- `test_cross_platform.py`：Windows/Linux 虚拟环境、FFmpeg 和 yt-dlp 入口契约。
 
 ## Unit Test Plan
 
@@ -64,35 +65,34 @@
 
 ## Part 2: Test Results
 
-执行日期：2026-07-25
+执行日期：2026-08-08
 
 安装环境：
 
-- CLI Python：`<skill-root>\.venv-gpu\Scripts\python.exe`
-- 安装方式：`uv pip install --python <CLI-Python> -e <skill-root>\agent-harness[test]`
-- 安装入口：`cli-anything-video-learning` 1.2.0
+- Linux CLI Python：`<skill-root>/.venv/bin/python`
+- Windows CLI Python：`<skill-root>\.venv-gpu\Scripts\python.exe`
+- 安装方式：平台安装器调用 `uv pip install --python <CLI-Python> --no-deps -e <skill-root>/agent-harness`
+- 安装入口：`cli-anything-video-learning` 1.3.0
 - 运行约束：`CLI_ANYTHING_FORCE_INSTALLED=1`，测试不得回退到源码模块
 
 执行命令：
 
-```powershell
-python -m pytest cli_anything\video_learning\tests -v -s --tb=no
+```text
+python -m pytest cli_anything/video_learning/tests -q
 ```
 
 最终结果：
 
 ```text
-53 passed in 3.71s
+61 passed, 1 skipped in 1.16s
 ```
 
 验收覆盖：
 
-- 42 个核心单测全部通过：安全 yt-dlp 参数、严格分 P、JSON3/VTT、Cookie 风险授权、默认省略全文、不可信正文规则、CLI/后端错误脱敏、Cookie 授权状态、原子写入、来源身份、抖音 SSR 元数据/画质/fallback/缓存身份和音频清理。
-- 11 个安装态 subprocess 测试通过：包含 1.2.0 版本、纯 JSON、非法分 P、字幕/笔记原子输出、来源身份与真实 doctor。
-- 当前总计 53 个离线/安装态测试；默认套件不联网、不下载媒体、不读取浏览器 Cookie，也不启动 GPU ASR。
-- 10 个安装态 E2E 全部通过：帮助、B站/抖音解析、3 种非法 `p=`、真实 VTT 文件、两种笔记渲染和真实 doctor 后端检查。
-- 从 `C:\Windows\Temp` 运行安装命令：P2 返回退出码 0；`p=0` 返回退出码 1 与 `{\"ok\": false}`；doctor 找到真实 Skill、GPU Python、yt-dlp 与 FFmpeg。
-- 两份新 CLI `SKILL.md` 通过 `quick_validate.py`；原中文 Skill 用 `python -X utf8` 调用同一验证器后通过。第一次原 Skill 校验的 GBK `UnicodeDecodeError` 属于验证器调用编码问题，不是 Skill 内容失败。
-- GitHub CI 使用轻量环境运行 52 项离线测试并跳过唯一的完整安装态 doctor；本机发布门槛使用既有验证运行时完成全部 53 项。
+- 61 个离线/安装态测试通过，覆盖安全 yt-dlp 参数、严格分 P、字幕解析、Cookie 风险授权、默认省略全文、诊断脱敏、原子写入、来源身份、抖音 SSR/缓存和跨平台运行时入口。
+- 轻量 CI 环境跳过唯一要求完整 ASR 运行时的 doctor 测试；默认套件不联网、不下载媒体、不读取浏览器 Cookie，也不启动模型推理。
+- 隔离 Linux 完整安装验收通过：依赖一致、CLI 1.3.0、本地合成 MP4 转 16 kHz 单声道 WAV、doctor 找到 `.venv`、yt-dlp、imageio-ffmpeg、faster-whisper 和 CTranslate2。
+- Skill Creator 校验通过；Skill Lifecycle Manager 的 Static、Runtime、Behavior 三层验证均通过。
+- Windows CUDA 完整安装与真实 GPU ASR 留给 Windows GitHub Actions 和显式授权的真实硬件 smoke；本地 Linux 验收不冒充 Windows GPU 证据。
 
 未执行的平台联网、媒体下载和 GPU ASR smoke：这些检查可能访问站点、下载媒体或占用 GPU，不属于本轮默认离线回归。对应风险仍由 `doctor status`、命令构造测试和后续用户授权的真实视频任务覆盖。

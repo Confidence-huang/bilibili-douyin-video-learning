@@ -4,12 +4,13 @@
 
 ## 安装
 
-```powershell
-$runtimePython = Join-Path $env:USERPROFILE ".agents\skills\bilibili-video-learning\.venv-gpu\Scripts\python.exe"
-uv pip install --python $runtimePython -e ".[test]"
+Windows 运行时为 `<skill-root>\.venv-gpu\Scripts\python.exe`，Linux 运行时为 `<skill-root>/.venv/bin/python`。仓库根目录的平台安装器会自动安装 harness；手工诊断时可执行：
+
+```text
+uv pip install --python <runtime-python> --no-deps -e <skill-root>/agent-harness
 ```
 
-运行时还需要完整 Skill，以及 Skill 自己的 `.venv-gpu`。可用环境变量覆盖发现路径：
+运行时还需要完整 Skill，以及 Skill 自己的 `.venv` 或 `.venv-gpu`。可用环境变量覆盖发现路径：
 
 - `BILIBILI_VIDEO_LEARNING_ROOT`
 - `BILIBILI_VIDEO_LEARNING_PYTHON`
@@ -17,7 +18,7 @@ uv pip install --python $runtimePython -e ".[test]"
 
 ## 常用命令
 
-```powershell
+```text
 # 纯解析，不下载媒体
 cli-anything-video-learning --json source normalize "https://www.bilibili.com/video/BV...?p=2"
 
@@ -64,7 +65,7 @@ cli-anything-video-learning --json doctor status
 
 ## 测试
 
-```powershell
+```text
 $env:CLI_ANYTHING_FORCE_INSTALLED='1'
 python -m pytest cli_anything\video_learning\tests -v -s --tb=no
 ```

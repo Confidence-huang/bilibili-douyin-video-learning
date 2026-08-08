@@ -9,9 +9,9 @@ Use this skill to turn accessible Bilibili or Douyin video material into reliabl
 
 ## Local Tooling
 
-On Windows after running the package installer, prefer the installed CLI harness for normal work. It provides stable commands, strict page selection, pure JSON stdout, nonzero failures, and local diagnostics while delegating to the bundled video-learning scripts:
+After running the Windows or Linux installer, prefer the installed CLI harness for normal work. It provides stable commands, strict page selection, pure JSON stdout, nonzero failures, and local diagnostics while delegating to the bundled video-learning scripts:
 
-```powershell
+```text
 cli-anything-video-learning --json doctor status
 cli-anything-video-learning --json source normalize "<url-or-id>"
 cli-anything-video-learning --json source inspect "<bilibili-or-douyin-url>"
@@ -27,7 +27,7 @@ Run anonymous inspection first. If `source inspect` returns `status: "cookie_per
 
 Implementation details and diagnostic backends:
 
-- Canonical skill root: `$env:USERPROFILE\.agents\skills\bilibili-video-learning\` by default, or the path passed to `install_windows.ps1 -DestinationRoot`.
+- Canonical Skill root: `%USERPROFILE%\.agents\skills\bilibili-video-learning` on Windows or `~/.agents/skills/bilibili-video-learning` on Linux, unless the platform installer receives an explicit destination.
 - Skill scripts: `<skill-root>\scripts\`
 - Douyin pipeline: `douyin_extract.py` now prefers the public SSR share-page path (`v.douyin.com` / `douyin.com/video/<id>` / bare `aweme_id` -> anonymous `ttwid` -> share HTML -> `aweme.snssdk.com` play URL -> ffmpeg -> faster-whisper/CTranslate2), then falls back to `yt-dlp -> ffmpeg -> faster-whisper/CTranslate2` when the public path is unavailable.
 - Douyin SSR diagnostics: use `douyin_extract.py <url_or_id> --download-method ssr --list-ratios` to probe `1080p/720p/540p/360p` with `Range: bytes=0-1`. The script records `Content-Range` file sizes, marks duplicate payloads, and downloads the requested ratio or the next lower public ratio when the requested one is unavailable.
@@ -36,18 +36,19 @@ Implementation details and diagnostic backends:
 - Bilibili page rule: an explicit malformed, zero, or unavailable `p=` is a hard error. Never silently switch the request to P1.
 - Media rule: metadata and subtitle operations use yt-dlp's skip-download path. Only an explicit transcription request may download temporary audio for ASR.
 - yt-dlp fallback rule: use yt-dlp for metadata, subtitles, and emergency media fallback. Its current README documents `curl_cffi` browser impersonation for TLS-fingerprinted sites, `--proxy`, `--socket-timeout`, `--cookies-from-browser`, retry controls, and `-x --audio-format` post-processing; prefer this documented path before inventing site-specific flags.
-- Python for Bilibili/Douyin ASR: `<skill-root>\.venv-gpu\Scripts\python.exe`
-  - The installer creates this uv-managed Python 3.12 environment from the locked CUDA 12.8 dependency set. Confirm `torch.cuda.is_available() == True` before claiming GPU acceleration.
-  - For long audio/video transcription on a supported NVIDIA GPU, prefer `faster-whisper + CTranslate2 + cuda + float16` in this same uv environment. It is normally more efficient than the older `openai-whisper` PyTorch route.
-  - Use `openai-whisper` only as a compatibility fallback after the faster-whisper route has actually failed.
-  - Confirm GPU usage by checking the script's `device=cuda` / `compute_type=float16` output, `sys.prefix`, and `nvidia-smi`; process listings may show the base interpreter even while the active environment is `.venv-gpu`.
-  - The system or uv bootstrap interpreter is not the normal ASR entrypoint. Use the Skill's `.venv-gpu` interpreter for video work.
+- Python for Bilibili/Douyin ASR is `<skill-root>\.venv-gpu\Scripts\python.exe` on Windows and `<skill-root>/.venv/bin/python` on Linux.
+  - Windows installs the locked `asr` and `cuda-compat` profiles. Confirm the actual script reports `device=cuda` / `compute_type=float16` and verify `nvidia-smi` before claiming GPU acceleration.
+  - Linux installs the locked `asr` profile only. Without an exposed CUDA device, faster-whisper selects CPU/int8; the installer never installs CUDA, changes drivers, invokes sudo, or creates a background service.
+  - For long audio/video transcription on a supported NVIDIA GPU, prefer `faster-whisper + CTranslate2 + cuda + float16`. Use `openai-whisper` only on the Windows compatibility profile after faster-whisper has actually failed.
+  - The system or uv bootstrap interpreter is not the normal ASR entrypoint. Use the Skill-owned runtime for video work.
 - Douyin default command shape: `python ...\douyin_extract.py <url_or_id> --download-method auto --ratio 1080p --model small -o <dir>`. Use `--download-method ssr` to force the public SSR path, or `--download-method ytdlp` to force the older extractor path.
 - Douyin preflight command shape: `python ...\douyin_extract.py <url_or_id> --download-method ssr --list-ratios --json` when a link is suspicious, repeatedly failing, or needs quality diagnostics before transcription.
 - Douyin proxy fallback is optional. Only use a proxy the user already owns and explicitly provides, for example through `$env:VIDEO_LEARNING_PROXY`; never assume a local port exists.
 - For `yt-dlp` Douyin failures such as `Fresh cookies needed`, SSL EOF, or unavailable browser impersonation, first ensure `yt-dlp` is current and `curl-cffi` is installed. If the user supplied a proxy, retry with `--download-method ytdlp --impersonate chrome-110:windows-10 --proxy $env:VIDEO_LEARNING_PROXY --socket-timeout 60`.
 
 Use `work/` for raw extractions and temporary transcript artifacts. Use the thread `outputs/` directory only for polished user-facing notes.
+
+Rendered audio capture from an authorized, logged-in paid-course tab is intentionally outside this Skill. Use the separate `course-audio-capture` Skill for that workflow; do not move browser tunnels, automatic lesson switching, or course checkpoints into this public-video Skill.
 
 ## Bilibili Obsidian Clipper Integration
 

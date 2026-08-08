@@ -9,6 +9,56 @@ permissions:
   contents: read
 
 jobs:
+  ubuntu-source-and-offline-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      PYTHONUTF8: "1"
+
+    steps:
+      - name: Check out the exact commit
+        uses: actions/checkout@v4
+
+      - name: Install Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.11.17"
+
+      - name: Validate source and privacy boundaries
+        run: |
+          ./verify_linux.sh --skill-root "$PWD/.agents/skills/bilibili-video-learning" --skip-runtime
+          uv run --isolated --with pyyaml python ./tools/validate_repository.py
+
+      - name: Confirm the committed dependency lock
+        run: uv lock --check --project .agents/skills/bilibili-video-learning
+
+      - name: Run portable lifecycle probes
+        run: |
+          python .agents/skills/bilibili-video-learning/tests/runtime.py
+          python .agents/skills/bilibili-video-learning/tests/behavior.py
+
+      - name: Build a lightweight test environment
+        run: |
+          skill_root="$PWD/.agents/skills/bilibili-video-learning"
+          uv venv .ci-venv --python 3.12
+          uv pip install --python .ci-venv/bin/python pytest click prompt-toolkit requests setuptools pyyaml
+          uv pip install --python .ci-venv/bin/python --no-deps -e "$skill_root/agent-harness"
+
+      - name: Run offline tests without ASR model downloads
+        run: |
+          skill_root="$PWD/.agents/skills/bilibili-video-learning"
+          export BILIBILI_VIDEO_LEARNING_ROOT="$skill_root"
+          export BILIBILI_VIDEO_LEARNING_PYTHON="$PWD/.ci-venv/bin/python"
+          export CLI_ANYTHING_FORCE_INSTALLED=1
+          export VIDEO_LEARNING_SKIP_INSTALLED_RUNTIME_TESTS=1
+          export PATH="$PWD/.ci-venv/bin:$PATH"
+          .ci-venv/bin/python -m pytest -q "$skill_root/agent-harness/cli_anything/video_learning/tests"
+
   windows-source-and-offline-tests:
     runs-on: windows-latest
     timeout-minutes: 20
@@ -60,3 +110,10 @@ jobs:
           $env:VIDEO_LEARNING_SKIP_INSTALLED_RUNTIME_TESTS = "1"
           $env:PATH = "$(Resolve-Path '.\.ci-venv\Scripts');$env:PATH"
           .\.ci-venv\Scripts\python.exe -m pytest -q "$skillRoot\agent-harness\cli_anything\video_learning\tests"
+
+      - name: Run portable lifecycle probes
+        shell: pwsh
+        run: |
+          $skillRoot = Join-Path $PWD ".agents\skills\bilibili-video-learning"
+          python "$skillRoot\tests\runtime.py"
+          python "$skillRoot\tests\behavior.py"

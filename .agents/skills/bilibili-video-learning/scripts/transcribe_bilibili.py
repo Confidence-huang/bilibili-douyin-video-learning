@@ -9,37 +9,11 @@ import re
 import sys
 import subprocess
 import tempfile
-import shutil
 import argparse
 
 from speech_to_text import transcribe_audio_file                                  # 统一使用 faster-whisper 优先的本机 ASR 入口
 from runtime_output import log                                                   # 进度只写 stderr，保持 --json stdout 纯净。
-
-
-def find_ffmpeg():
-    """Locate ffmpeg executable."""
-    # Check common locations
-    candidates = [
-        "ffmpeg",
-        "ffmpeg.exe",
-        shutil.which("ffmpeg"),
-        shutil.which("ffmpeg.exe"),
-    ]
-    # Also check SteelSeries location
-    import glob
-    for path in glob.glob("C:\\Program Files\\SteelSeries\\GG\\apps\\moments\\*\\ffmpeg.exe"):
-        candidates.append(path)
-    for c in candidates:
-        if c and os.path.exists(c):
-            return c
-        if c:
-            try:
-                result = subprocess.run([c, "-version"], capture_output=True, timeout=5)
-                if result.returncode == 0:
-                    return c
-            except Exception:
-                continue
-    return "ffmpeg"
+from media_tools import find_ffmpeg                                              # yt-dlp 显式使用同一跨平台 FFmpeg。
 
 
 def download_audio(bvid, output_dir, cookies=None):
@@ -58,6 +32,7 @@ def download_audio(bvid, output_dir, cookies=None):
         "--quiet",
         "--retries", "3",
         "--fragment-retries", "3",
+        "--ffmpeg-location", find_ffmpeg(),
         url
     ]
 

@@ -43,7 +43,10 @@ DEFAULT_OBSIDIAN_FOLDER = r"20_沉淀箱/Bilibili"
 
 def _run_ytdlp(url, *, cookies=None, extra_args=None):
     """Run yt-dlp --dump-json and return parsed info dict(s)."""
-    cmd = ["yt-dlp", "--dump-json", "--skip-download", "--flat-playlist", "--no-warnings"]
+    cmd = [
+        sys.executable, "-m", "yt_dlp",
+        "--dump-json", "--skip-download", "--flat-playlist", "--no-warnings",
+    ]
 
     if cookies:
         if cookies in ("chrome", "edge", "firefox", "brave", "opera"):
@@ -65,7 +68,7 @@ def _run_ytdlp(url, *, cookies=None, extra_args=None):
     except subprocess.TimeoutExpired:
         return {"error": "yt-dlp timed out after 120s"}
     except FileNotFoundError:
-        return {"error": "yt-dlp not found. Install with: pip install yt-dlp"}
+        return {"error": "Skill-owned Python runtime is unavailable for yt-dlp"}
 
     if proc.returncode != 0:
         stderr = proc.stderr.strip().split("\n")[-3:] if proc.stderr else []

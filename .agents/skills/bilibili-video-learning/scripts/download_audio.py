@@ -12,7 +12,6 @@ Usage examples:
 import json
 import os
 import re
-import shutil
 import sys
 import subprocess
 import urllib.request
@@ -21,6 +20,7 @@ from urllib.parse import parse_qs, urlparse
 
 from speech_to_text import transcribe_audio_file                                  # 统一使用 faster-whisper 优先的本机 ASR 入口
 from runtime_output import log                                                   # 下载/ASR 进度写 stderr，最终 JSON 留在 stdout。
+from media_tools import find_ffmpeg                                              # 所有平台共用同一 FFmpeg 解析规则。
 
 
 # --- URL and page selection ---
@@ -183,21 +183,6 @@ def download_audio_stream(url, output_path, headers=None):
         raise RuntimeError(f"ffmpeg conversion failed: {result.stderr}")
 
     return output_path
-
-
-def find_ffmpeg():
-    """Locate ffmpeg executable."""
-    import glob
-    candidates = [
-        shutil.which("ffmpeg"),
-        shutil.which("ffmpeg.exe"),
-    ]
-    for path in glob.glob("C:\\Program Files\\SteelSeries\\GG\\apps\\moments\\*\\ffmpeg.exe"):
-        candidates.append(path)
-    for c in candidates:
-        if c and os.path.exists(c):
-            return c
-    return "ffmpeg"
 
 
 def download_audio(bvid, output_dir, cookies=None, page=None, return_details=False):
