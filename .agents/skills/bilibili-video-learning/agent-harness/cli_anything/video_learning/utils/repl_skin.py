@@ -7,7 +7,7 @@ Usage:
     from cli_anything.<software>.utils.repl_skin import ReplSkin
 
     skin = ReplSkin("shotcut", version="1.0.0")
-    skin.print_banner()  # auto-detects repo-root or packaged SKILL.md
+    skin.print_banner()  # auto-detects the repo-root or packaged CLI guide
     prompt_text = skin.prompt(project_name="my_video.mlt", modified=True)
     skin.success("Project saved")
     skin.error("File not found")
@@ -119,7 +119,7 @@ class ReplSkin:
             version: CLI version string.
             history_file: Path for persistent command history.
                          Defaults to ~/.cli-anything-<software>/history
-            skill_path: Path to the SKILL.md file for agent discovery.
+            skill_path: Path to the CLI guide displayed for agent discovery.
                         Auto-detected from the repo-root skills/ tree when present,
                         otherwise from the package's skills/ directory.
                         Displayed in banner for AI agents to know where to read skill info.
@@ -138,14 +138,14 @@ class ReplSkin:
         ).expanduser()
         self.global_skill_path = str(global_skill_root / self.skill_id / "SKILL.md")
 
-        # Prefer repo-root canonical skills/<skill-id>/SKILL.md when running
+        # Prefer the repo-root canonical CLI guide when running
         # inside the CLI-Anything monorepo. Fall back to the packaged
-        # cli_anything/<software>/skills/SKILL.md for installed harnesses.
+        # cli_anything/<software>/skills/CLI_GUIDE.md for installed harnesses.
         if skill_path is None:
-            package_skill = Path(__file__).resolve().parent.parent / "skills" / "SKILL.md"
+            package_skill = Path(__file__).resolve().parent.parent / "skills" / "CLI_GUIDE.md"
             repo_skill = None
             for parent in Path(__file__).resolve().parents:
-                candidate = parent / "skills" / self.skill_id / "SKILL.md"
+                candidate = parent / "skills" / self.skill_id / "CLI_GUIDE.md"
                 if candidate.is_file():
                     repo_skill = candidate
                     break
