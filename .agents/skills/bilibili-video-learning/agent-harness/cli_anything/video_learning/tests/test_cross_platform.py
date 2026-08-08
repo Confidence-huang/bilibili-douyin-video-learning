@@ -49,6 +49,7 @@ def runtime_for(skill_root: Path) -> SkillRuntime:
 )
 def test_runtime_python_supports_linux_and_windows_layouts(monkeypatch, tmp_path, relative_python):
     monkeypatch.delenv("BILIBILI_VIDEO_LEARNING_PYTHON", raising=False)
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "empty-xdg-data"))
     python_path = tmp_path / relative_python
     python_path.parent.mkdir(parents=True)
     python_path.touch()

@@ -47,7 +47,7 @@ class TestCLISubprocess:
 
     def test_version(self):
         result = self._run(["--version"])
-        assert "1.3.2" in result.stdout
+        assert "1.3.3" in result.stdout
 
     def test_normalize_bilibili_json(self):
         result = self._run(["--json", "source", "normalize", "https://www.bilibili.com/video/BV1xx411c7mD?p=2"])
