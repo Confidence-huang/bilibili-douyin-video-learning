@@ -2,7 +2,7 @@
 
 All notable public changes are recorded here.
 
-## 1.3.0 - Unreleased
+## 1.3.0 - 2026-08-08
 
 - Added one canonical Windows/Linux Skill distribution without changing the `$bilibili-video-learning` invocation name.
 - Added transactional Linux source/runtime installation, verification, and a user-scoped CLI wrapper with no sudo or system configuration changes.
