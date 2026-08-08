@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import shutil
+import subprocess
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -52,6 +54,43 @@ def test_runtime_python_supports_linux_and_windows_layouts(monkeypatch, tmp_path
     python_path.touch()
 
     assert runtime_for(tmp_path).find_runtime_python() == python_path.resolve()
+
+
+def test_runtime_python_supports_external_linux_runtime(monkeypatch, tmp_path):
+    monkeypatch.delenv("BILIBILI_VIDEO_LEARNING_PYTHON", raising=False)
+    data_home = tmp_path / "xdg-data"
+    monkeypatch.setenv("XDG_DATA_HOME", str(data_home))
+    python_path = data_home / "bilibili-video-learning" / "runtime" / "bin" / "python"
+    python_path.parent.mkdir(parents=True)
+    python_path.touch()
+
+    assert runtime_for(tmp_path / "skill").find_runtime_python() == python_path.absolute()
+
+
+@pytest.mark.skipif(shutil.which("bash") is None, reason="Linux installer contract requires bash")
+def test_linux_installer_rejects_runtime_inside_skill(tmp_path):
+    repository_root = SKILL_ROOT.parents[2]
+    installer = repository_root / "install_linux.sh"
+    if not installer.is_file():
+        pytest.skip("Repository-level installer is not included in an installed Skill copy")
+    destination = tmp_path / "bilibili-video-learning"
+    completed = subprocess.run(
+        [
+            "bash",
+            str(installer),
+            "--destination-root",
+            str(destination),
+            "--runtime-root",
+            str(destination / ".venv"),
+            "--skip-runtime",
+        ],
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 2
+    assert "Runtime must be outside the Skill destination" in completed.stderr
+    assert not destination.exists()
 
 
 def test_media_tools_prefers_path_ffmpeg(monkeypatch, tmp_path):

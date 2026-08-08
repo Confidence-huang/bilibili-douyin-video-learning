@@ -50,9 +50,13 @@ class SkillRuntime:
     # --- 发现 Skill 自带的 CPU 或 GPU uv Python ---
     def find_runtime_python(self, explicit_path: str | Path | None = None) -> Path:
         configured_path = os.environ.get("BILIBILI_VIDEO_LEARNING_PYTHON")      # 允许测试或其他机器覆盖解释器。
+        data_home = Path(os.environ.get("XDG_DATA_HOME") or (Path.home() / ".local" / "share"))
+        external_runtime = data_home / "bilibili-video-learning" / "runtime"  # Linux 运行时不得污染 Skill 扫描树。
         candidates = [
             explicit_path,
             configured_path,
+            external_runtime / "bin" / "python",
+            external_runtime / "Scripts" / "python.exe",
             self.skill_root / ".venv" / "Scripts" / "python.exe",
             self.skill_root / ".venv" / "bin" / "python",
             self.skill_root / ".venv-gpu" / "Scripts" / "python.exe",
@@ -61,7 +65,7 @@ class SkillRuntime:
         for candidate in candidates:
             if candidate and Path(candidate).expanduser().is_file():
                 return Path(candidate).expanduser().absolute()                  # POSIX venv Python is a symlink; resolving it loses the venv.
-        raise RuntimeError(f"Video-learning Python environment is missing under: {self.skill_root}")
+        raise RuntimeError(f"Video-learning Python environment is missing for Skill: {self.skill_root}")
 
     # --- 运行会输出一个 JSON 文档的生产脚本 ---
     def run_json_script(self, script_name: str, arguments: list[str], timeout: int = 180) -> dict:

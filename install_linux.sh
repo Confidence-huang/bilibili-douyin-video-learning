@@ -5,12 +5,13 @@ set -euo pipefail
 package_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 source_skill_root="$package_root/.agents/skills/bilibili-video-learning"
 destination_root="${HOME}/.agents/skills/bilibili-video-learning"
+runtime_root="${XDG_DATA_HOME:-${HOME}/.local/share}/bilibili-video-learning/runtime"
 command_bin="${HOME}/.local/bin"
 skip_runtime=0
 
 usage() {
   printf '%s\n' \
-    "Usage: ./install_linux.sh [--destination-root PATH] [--command-bin PATH] [--skip-runtime]" \
+    "Usage: ./install_linux.sh [--destination-root PATH] [--runtime-root PATH] [--command-bin PATH] [--skip-runtime]" \
     "Installs only in user-scoped paths; never invokes sudo or edits shell startup files."
 }
 
@@ -18,6 +19,10 @@ while (($#)); do
   case "$1" in
     --destination-root)
       destination_root="${2:?missing value for --destination-root}"
+      shift 2
+      ;;
+    --runtime-root)
+      runtime_root="${2:?missing value for --runtime-root}"
       shift 2
       ;;
     --command-bin)
@@ -41,6 +46,7 @@ while (($#)); do
 done
 
 destination_root="$(realpath -m -- "$destination_root")"
+runtime_root="$(realpath -m -- "$runtime_root")"
 command_bin="$(realpath -m -- "$command_bin")"
 user_root="$(realpath -m -- "${HOME}")"
 if [[ "$(basename -- "$destination_root")" != "bilibili-video-learning" ]]; then
@@ -51,6 +57,16 @@ if [[ "$destination_root" == "/" || "$destination_root" == "$user_root" ]]; then
   printf 'Refusing broad installation target: %s\n' "$destination_root" >&2
   exit 2
 fi
+if [[ "$runtime_root" == "/" || "$runtime_root" == "$user_root" ]]; then
+  printf 'Refusing broad runtime target: %s\n' "$runtime_root" >&2
+  exit 2
+fi
+case "$runtime_root/" in
+  "$destination_root/"*)
+    printf 'Runtime must be outside the Skill destination: %s\n' "$runtime_root" >&2
+    exit 2
+    ;;
+esac
 if [[ "$command_bin" == "/" || "$command_bin" == "$user_root" ]]; then
   printf 'Refusing broad command directory: %s\n' "$command_bin" >&2
   exit 2
@@ -97,8 +113,8 @@ if ! command -v uv >/dev/null 2>&1; then
   exit 1
 fi
 
-runtime_python="$destination_root/.venv/bin/python"
-UV_PROJECT_ENVIRONMENT="$destination_root/.venv" \
+runtime_python="$runtime_root/bin/python"
+UV_PROJECT_ENVIRONMENT="$runtime_root" \
   uv sync --project "$destination_root" --locked --python 3.12 --extra asr
 uv pip install --python "$runtime_python" --no-build-isolation --no-deps -e "$destination_root/agent-harness"
 
@@ -118,4 +134,5 @@ case ":${PATH}:" in
   *":${command_bin}:"*) ;;
   *) printf 'Add this directory to PATH if needed: %s\n' "$command_bin" ;;
 esac
-printf 'Run verification: ./verify_linux.sh --skill-root %q\n' "$destination_root"
+printf 'Installed runtime outside Skill tree: %s\n' "$runtime_root"
+printf 'Run verification: ./verify_linux.sh --skill-root %q --runtime-root %q\n' "$destination_root" "$runtime_root"

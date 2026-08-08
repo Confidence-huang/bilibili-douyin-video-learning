@@ -3,6 +3,7 @@
 set -euo pipefail
 
 skill_root="${HOME}/.agents/skills/bilibili-video-learning"
+runtime_root="${XDG_DATA_HOME:-${HOME}/.local/share}/bilibili-video-learning/runtime"
 skip_runtime=0
 skip_tests=0
 
@@ -10,6 +11,10 @@ while (($#)); do
   case "$1" in
     --skill-root)
       skill_root="${2:?missing value for --skill-root}"
+      shift 2
+      ;;
+    --runtime-root)
+      runtime_root="${2:?missing value for --runtime-root}"
       shift 2
       ;;
     --skip-runtime)
@@ -21,7 +26,7 @@ while (($#)); do
       shift
       ;;
     --help|-h)
-      printf '%s\n' 'Usage: ./verify_linux.sh [--skill-root PATH] [--skip-runtime] [--skip-tests]'
+      printf '%s\n' 'Usage: ./verify_linux.sh [--skill-root PATH] [--runtime-root PATH] [--skip-runtime] [--skip-tests]'
       exit 0
       ;;
     *)
@@ -32,6 +37,7 @@ while (($#)); do
 done
 
 skill_root="$(realpath -- "$skill_root")"
+runtime_root="$(realpath -m -- "$runtime_root")"
 required_files=(
   SKILL.md agents/openai.yaml pyproject.toml uv.lock
   scripts/fetch_bilibili.py scripts/runtime_output.py scripts/media_tools.py
@@ -45,7 +51,9 @@ for relative_path in "${required_files[@]}"; do
 done
 
 validation_python=""
-if [[ -x "$skill_root/.venv/bin/python" ]]; then
+if [[ -x "$runtime_root/bin/python" ]]; then
+  validation_python="$runtime_root/bin/python"
+elif [[ -x "$skill_root/.venv/bin/python" ]]; then
   validation_python="$skill_root/.venv/bin/python"
 elif command -v python3 >/dev/null 2>&1; then
   validation_python="$(command -v python3)"
@@ -80,7 +88,7 @@ if ((skip_runtime)); then
   exit 0
 fi
 
-runtime_python="$skill_root/.venv/bin/python"
+runtime_python="$runtime_root/bin/python"
 [[ -x "$runtime_python" ]] || {
   printf 'Runtime is missing: %s\n' "$runtime_python" >&2
   exit 1

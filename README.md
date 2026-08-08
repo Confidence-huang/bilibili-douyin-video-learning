@@ -38,7 +38,7 @@ cd bilibili-douyin-video-learning
 ./verify_linux.sh
 ```
 
-Linux 安装器创建 `.venv`，默认使用 faster-whisper；没有可见 CUDA 时自动使用 CPU/int8。安装器不会安装 CUDA、升级驱动、调用 sudo、编辑系统配置或创建后台服务。
+Linux 安装器在 `${XDG_DATA_HOME:-$HOME/.local/share}/bilibili-video-learning/runtime` 创建独立运行时，默认使用 faster-whisper；运行时不放进 Skill 树，避免依赖包污染 Skill 生命周期扫描。没有可见 CUDA 时自动使用 CPU/int8。安装器不会安装 CUDA、升级驱动、调用 sudo、编辑系统配置或创建后台服务。
 
 只安装 Skill 源码、不下载大型 ASR 运行环境：
 

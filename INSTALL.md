@@ -41,7 +41,7 @@ cd bilibili-douyin-video-learning
 ./verify_linux.sh
 ```
 
-默认安装到 `~/.agents/skills/bilibili-video-learning`，运行时位于 `.venv`，CLI 包装器位于 `~/.local/bin`。Linux 安装器：
+默认安装到 `~/.agents/skills/bilibili-video-learning`，运行时位于 `${XDG_DATA_HOME:-$HOME/.local/share}/bilibili-video-learning/runtime`，CLI 包装器位于 `~/.local/bin`。外置运行时可避免 Python 依赖携带的 Skill 文件污染主 Skill 的生命周期扫描。Linux 安装器：
 
 1. 只启用 `asr` 依赖档案；
 2. 没有可见 CUDA 时由 faster-whisper 自动使用 CPU/int8；
@@ -54,9 +54,11 @@ cd bilibili-douyin-video-learning
 ```bash
 ./install_linux.sh \
   --destination-root "$HOME/.local/share/agent-skills/bilibili-video-learning" \
+  --runtime-root "$HOME/.local/share/bilibili-video-learning/runtime" \
   --command-bin "$HOME/.local/bin"
 ./verify_linux.sh \
-  --skill-root "$HOME/.local/share/agent-skills/bilibili-video-learning"
+  --skill-root "$HOME/.local/share/agent-skills/bilibili-video-learning" \
+  --runtime-root "$HOME/.local/share/bilibili-video-learning/runtime"
 ```
 
 ## 只安装源码
