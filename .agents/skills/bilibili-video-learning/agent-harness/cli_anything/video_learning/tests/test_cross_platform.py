@@ -67,7 +67,10 @@ def test_runtime_python_supports_external_linux_runtime(monkeypatch, tmp_path):
     assert runtime_for(tmp_path / "skill").find_runtime_python() == python_path.absolute()
 
 
-@pytest.mark.skipif(shutil.which("bash") is None, reason="Linux installer contract requires bash")
+@pytest.mark.skipif(
+    sys.platform == "win32" or shutil.which("bash") is None,
+    reason="Linux installer contract requires a POSIX host and bash",
+)
 def test_linux_installer_rejects_runtime_inside_skill(tmp_path):
     repository_root = SKILL_ROOT.parents[2]
     installer = repository_root / "install_linux.sh"
