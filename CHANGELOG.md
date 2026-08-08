@@ -2,6 +2,11 @@
 
 All notable public changes are recorded here.
 
+## 1.3.3 - 2026-08-08
+
+- Isolate legacy embedded-runtime resolver tests from a real user-level XDG
+  runtime so the installed Linux verification suite remains deterministic.
+
 ## 1.3.2 - 2026-08-08
 
 - Move the default Linux Python runtime outside the lifecycle-scanned Skill tree
