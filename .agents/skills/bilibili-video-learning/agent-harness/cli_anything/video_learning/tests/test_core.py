@@ -549,8 +549,8 @@ def test_cli_dispatches_douyin_inspection(monkeypatch):
 
 
 def test_cli_skill_guides_remain_identical():
-    packaged_skill = SKILL_ROOT / "agent-harness" / "cli_anything" / "video_learning" / "skills" / "SKILL.md"
-    source_skill = SKILL_ROOT / "agent-harness" / "skills" / "cli-anything-video-learning" / "SKILL.md"
+    packaged_skill = SKILL_ROOT / "agent-harness" / "cli_anything" / "video_learning" / "skills" / "CLI_GUIDE.md"
+    source_skill = SKILL_ROOT / "agent-harness" / "skills" / "cli-anything-video-learning" / "CLI_GUIDE.md"
 
     assert packaged_skill.read_bytes() == source_skill.read_bytes()              # 两个安装入口不得静默漂移。
 

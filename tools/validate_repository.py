@@ -1,8 +1,8 @@
 """
 Validate the public repository before CI accepts a change.
 The check reads only Git-tracked files, rejects private/runtime artifacts and
-machine-specific paths, validates the main Skill frontmatter, and confirms that
-the two packaged CLI Skill guides are byte-identical.
+machine-specific paths, validates the main Skill frontmatter, rejects nested
+Skill entrypoints, and confirms that the two packaged CLI guides are byte-identical.
 Run with: python tools/validate_repository.py
 """
 from __future__ import annotations  # Modern type hints keep the validation data explicit.
@@ -77,12 +77,25 @@ def validate_skill_frontmatter() -> None:
         raise RuntimeError("SKILL.md description must not be empty")
 
 
-# --- Keep both CLI Skill installation paths synchronized ---
+# --- Keep one lifecycle-visible Skill entrypoint ---
+def validate_no_nested_skill_entrypoints(paths: list[Path]) -> None:
+    main_skill = SKILL_ROOT / "SKILL.md"
+    nested_skills = sorted(
+        path.relative_to(REPOSITORY_ROOT).as_posix()
+        for path in paths
+        if path.name == "SKILL.md" and path != main_skill and SKILL_ROOT in path.parents
+    )
+    if nested_skills:
+        joined = "\n".join(f"nested Skill entrypoint: {path}" for path in nested_skills)
+        raise RuntimeError(joined)
+
+
+# --- Keep both CLI guide installation paths synchronized ---
 def validate_cli_skill_parity() -> None:
-    packaged_skill = SKILL_ROOT / "agent-harness" / "cli_anything" / "video_learning" / "skills" / "SKILL.md"
-    source_skill = SKILL_ROOT / "agent-harness" / "skills" / "cli-anything-video-learning" / "SKILL.md"
+    packaged_skill = SKILL_ROOT / "agent-harness" / "cli_anything" / "video_learning" / "skills" / "CLI_GUIDE.md"
+    source_skill = SKILL_ROOT / "agent-harness" / "skills" / "cli-anything-video-learning" / "CLI_GUIDE.md"
     if packaged_skill.read_bytes() != source_skill.read_bytes():
-        raise RuntimeError("The two cli-anything-video-learning SKILL.md files differ")
+        raise RuntimeError("The two cli-anything-video-learning CLI_GUIDE.md files differ")
 
 
 # --- Run all publication gates and provide one compact success line ---
@@ -90,6 +103,7 @@ def main() -> int:
     paths = publishable_paths()                                                    # Discovery happens once for consistent counts.
     validate_tracked_content(paths)
     validate_skill_frontmatter()
+    validate_no_nested_skill_entrypoints(paths)
     validate_cli_skill_parity()
     print(f"REPOSITORY_OK: {len(paths)} publishable files passed privacy, Skill, and parity checks")
     return 0

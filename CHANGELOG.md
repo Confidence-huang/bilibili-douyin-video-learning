@@ -2,6 +2,13 @@
 
 All notable public changes are recorded here.
 
+## 1.3.1 - 2026-08-08
+
+- Renamed the two embedded CLI reference documents from `SKILL.md` to
+  `CLI_GUIDE.md` so lifecycle scanners expose only the repository's main
+  `bilibili-video-learning` Skill.
+- Added a publication gate that rejects any future nested `SKILL.md` entrypoint.
+
 ## 1.3.0 - 2026-08-08
 
 - Added one canonical Windows/Linux Skill distribution without changing the `$bilibili-video-learning` invocation name.
