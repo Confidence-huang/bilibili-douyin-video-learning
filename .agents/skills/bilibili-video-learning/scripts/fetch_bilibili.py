@@ -22,6 +22,20 @@ import urllib.error
 from urllib.parse import parse_qs, urlparse
 from datetime import datetime
 
+# ── Windows GBK 控制台编码保护 ──────────────────────────────────────
+# 当 stdout/stderr 是 GBK 终端时，含非 BMP 字符的 JSON 输出会崩溃。
+# 强制重新包装为 utf-8，仅在非 utf-8 环境下生效，不影响已重定向的管道。
+if hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+if hasattr(sys.stderr, "reconfigure"):
+    try:
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 from convert_subtitle import parse_bilibili_json, parse_srt, parse_vtt, parse_ytdlp_json  # 统一解析 yt-dlp 可返回的字幕格式。
 from file_output import write_text_atomically  # 所有最终 Markdown 先完整写入临时文件再原子发布。
 from runtime_output import log, sanitize_diagnostics, sanitize_text  # 进度与 JSON 诊断使用同一脱敏边界。

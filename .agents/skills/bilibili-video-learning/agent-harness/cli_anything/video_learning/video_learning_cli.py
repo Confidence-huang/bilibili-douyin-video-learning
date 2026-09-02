@@ -7,9 +7,25 @@ from __future__ import annotations  # 支持 Python 3.10+ 的现代类型标注�
 
 import json  # 全局 --json 模式输出单一机器可读文档。
 import shlex  # REPL 把一行输入转换为与 shell 一致的参数列表。
+import sys  # --json 输出需要与控制台编码解耦。
 from functools import wraps  # 错误边界装饰器保留 Click 命令元数据。
 
 import click  # CLI-Anything 的标准命令组框架。
+
+# ── Windows GBK 控制台编码保护 ──────────────────────────────────────
+# click.echo(ensure_ascii=False) 输出含 U+FFFD/emoji 等非 GBK 字符时，
+# 中文 Windows 的 cp936(GBK) 控制台会直接崩溃。强制统一为 UTF-8，
+# 对已重定向的管道同样生效，保证 JSON stdout 永远可被 Agent 解析。
+if hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+if hasattr(sys.stderr, "reconfigure"):
+    try:
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
 
 from cli_anything.video_learning import __version__  # banner 与 --version 使用同一版本。
 from cli_anything.video_learning.core.doctor import inspect_runtime  # 真实环境预检指令。
