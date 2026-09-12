@@ -2,6 +2,15 @@
 
 All notable public changes are recorded here.
 
+## 1.3.7 - 2026-09-13
+
+- Add per-frame vision captions to `douyin_deep_archive.py` (`--vision`,
+  `--vision-url`, `--vision-model`): each key frame is captioned through any
+  OpenAI-compatible multimodal endpoint (e.g. local Ollama qwen2.5vl), with
+  per-frame failure isolation and a placeholder fallback; replaces the
+  "待补视觉说明" placeholders in the generated note.
+
+
 ## 1.3.6 - 2026-09-13
 
 - Add `scripts/douyin_deep_archive.py`: the single deep-archive engine (bridge video +

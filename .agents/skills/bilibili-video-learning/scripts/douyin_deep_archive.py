@@ -92,6 +92,28 @@ def mmss(sec: float) -> str:
     return f"{int(sec // 60):02d}:{int(sec % 60):02d}"
 
 
+# --- 单帧视觉图注：OpenAI 兼容多模态接口（如本地 Ollama），失败返回空串不中断 ---
+def vision_caption(base: str, model: str, jpg: Path, title: str, timeout: int = 120) -> str:
+    b64 = base64.b64encode(jpg.read_bytes()).decode()
+    payload = {
+        "model": model,
+        "max_tokens": 120,
+        "temperature": 0.2,
+        "messages": [{"role": "user", "content": [
+            {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64," + b64}},
+            {"type": "text", "text": ("\u8BC6\u522B\u753B\u9762\u4E2D\u7684\u6240\u6709\u6587\u5B57\uFF08\u5B57\u5E55/\u6807\u9898/\u8868\u683C\uFF09\uFF0C"
+                                      "\u518D\u7528\u4E0D\u8D85\u8FC7 30 \u5B57\u6982\u8FF0\u753B\u9762\u5185\u5BB9\uFF0C"
+                                      f"\u683C\u5F0F\uFF1A\u6587\u5B57\uFF1A<\u539F\u6587>>\uFF5C\u6982\u8FF0\uFF1A<\u4E00\u53E5\u8BDD>\u3002\u4E0A\u4E0B\u6587\uFF1A{title[:40]}")},
+        ]}],
+    }
+    req = urllib.request.Request(base.rstrip("/") + "/chat/completions",
+                                 data=json.dumps(payload).encode("utf-8"),
+                                 headers={"Content-Type": "application/json"}, method="POST")
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        data = json.loads(resp.read().decode("utf-8"))
+    return str(data.get("choices", [{}])[0].get("message", {}).get("content", "")).strip()
+
+
 def _frame_name(idx: int, t1: float, t2: float) -> str:
     return f"\u56fe{idx:02d}_{t1:.1f}s-{t2:.1f}s.jpg"  # 图NN_0.0s-3.2s.jpg，与插件同名规则。
 
@@ -107,7 +129,8 @@ def build_section(frames: list[dict], segments: list[dict], duration: float) -> 
         lines.append(f"### \u56fe {fr['idx']:02d} \uFF5C {mmss(fr['t1'])}\u2013{mmss(fr['t2'])}")
         lines.append("")
         lines.append(f"![[{fr['vault_path']}]]")
-        lines.append(f"\uFF08\u56fe {fr['idx']}\uFF1A\u5F85\u8865\u89C6\u89C9\u8BF4\u660E\uFF09")
+        cap = str(fr.get("caption") or "").strip()
+        lines.append(f"\uFF08\u56fe {fr['idx']}\uFF1A{cap or '\u5F85\u8865\u89C6\u89C9\u8BF4\u660E'}\uff09")
         lines.append("")
         if hits:
             lines.append("> [!quote]- \u672C\u6BB5\u89E3\u8BF4")
@@ -206,7 +229,12 @@ def main() -> int:
     parser.add_argument("--model", default="small", help="faster-whisper 模型，默认 small")
     parser.add_argument("--language", default="zh")
     parser.add_argument("--device", default=None, choices=[None, "auto", "cuda", "cpu"])
-    parser.add_argument("--no-transcribe", action="store_true", help="只抽帧不转写（转写状态记 failed-skip）")
+    parser.add_argument("--no-transcribe", action="store_true", help="只抽帧不转写（转写状态记 skipped）")
+    parser.add_argument("--vision", action="store_true", help="逐帧生成视觉图注（需多模态端点，如本地 Ollama）")
+    parser.add_argument("--vision-url", default=os.environ.get("DOUYIN_VIDEO_VISION_URL"),
+                        help="OpenAI 兼容多模态端点根（自动补 /chat/completions）；缺省读 DOUYIN_VIDEO_VISION_URL")
+    parser.add_argument("--vision-model", default=os.environ.get("DOUYIN_VIDEO_VISION_MODEL") or "qwen2.5vl:3b",
+                        help="视觉模型名，默认 qwen2.5vl:3b")
     parser.add_argument("--note", default=None, help="目标笔记绝对路径；给定则直接更新该笔记（Obsidian 薄客户端入口）")
     parser.add_argument("--ffmpeg", default="ffmpeg", help="ffmpeg 可执行文件路径")
     parser.add_argument("--workdir", default=None, help="视频缓存目录；默认 %%LOCALAPPDATA%%/DouyinSyncBridge/media-work")
@@ -282,6 +310,20 @@ def main() -> int:
         frames.append({"idx": idx, "t1": round(t1, 2), "t2": round(t2, 2),
                        "vault_path": f"{vault_rel}/frames/{aweme_id}/{name}", "path": str(out)})
     log(f"[archive] frames: {len(frames)}")
+    if args.vision:
+        vurl = (args.vision_url or "").rstrip("/")
+        if not vurl:
+            log("[archive] vision requested but no endpoint (--vision-url / DOUYIN_VIDEO_VISION_URL); skipped")
+        else:
+            log(f"[archive] vision captions via {args.vision_model} ...")
+            okc = 0
+            for fr in frames:
+                try:
+                    fr["caption"] = vision_caption(vurl, args.vision_model, Path(fr["path"]), title or aweme_id)
+                    okc += 1
+                except Exception as e:
+                    log(f"[archive] vision fail f{fr['idx']:02d}: {str(e)[:90]}")
+            log(f"[archive] captions: {okc}/{len(frames)}")
 
     segments: list[dict] = []
     transcript_status = "skipped" if args.no_transcribe else "success"
