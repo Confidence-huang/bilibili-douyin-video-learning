@@ -2,6 +2,15 @@
 
 All notable public changes are recorded here.
 
+## 1.4.0 - 2026-09-13
+
+- Add `scripts/bilibili_deep_archive.py`: Bilibili deep-archive engine sharing the douyin
+  engine's algorithm and note contract (scene peaks + local faster-whisper + aligned
+  image-text section + vision captions). yt-dlp download works anonymously for public
+  videos; `BILIBILI_COOKIE_FILE` covers members-only content. Note contract key: bvid;
+  inbox defaults to $BILIBILI_OBSIDIAN_VAULT/$BILIBILI_OBSIDIAN_FOLDER.
+
+
 ## 1.3.7 - 2026-09-13
 
 - Add per-frame vision captions to `douyin_deep_archive.py` (`--vision`,
