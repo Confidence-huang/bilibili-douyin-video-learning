@@ -2,6 +2,15 @@
 
 All notable public changes are recorded here.
 
+## 1.3.6 - 2026-09-13
+
+- Add `scripts/douyin_deep_archive.py`: the single deep-archive engine (bridge video +
+  adaptive scene frames + local faster-whisper + aligned image-text section) writing the
+  exact note contract shared with the Obsidian douyin-vault-link plugin (douyin_id lookup,
+  idempotent section replace, frames under 附件/douyin-media/frames/<id>/).
+- Include offline unit tests for the engine's pure functions (scene parsing, peak picking,
+  alignment, section build, idempotent note update).
+
 ## 1.3.5 - 2026-09-13
 
 - Add `scripts/transcribe_audio_cli.py`: a standalone JSON CLI (`--audio/--model/--language/--device`)
