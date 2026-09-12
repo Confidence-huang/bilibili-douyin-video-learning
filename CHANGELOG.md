@@ -2,6 +2,15 @@
 
 All notable public changes are recorded here.
 
+## 1.3.4 - 2026-09-13
+
+- Add a `gpu` section to `doctor status` reporting CTranslate2 CUDA visibility
+  (`available`/`devices`/`error`) without affecting the overall ok verdict, so
+  the CPU fallback remains valid on machines without NVIDIA hardware.
+- Document the verified RTX 50-series (Blackwell / sm_120) Windows profile:
+  faster-whisper `small` at `cuda/float16` transcribed a 49-second Chinese clip
+  in ~5.4 s (~9x realtime) using ~3.3 GB VRAM.
+
 ## 1.3.3 - 2026-08-08
 
 - Isolate legacy embedded-runtime resolver tests from a real user-level XDG

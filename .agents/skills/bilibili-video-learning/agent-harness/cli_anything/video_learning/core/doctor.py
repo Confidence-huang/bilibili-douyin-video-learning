@@ -6,6 +6,17 @@ import os  # 检查当前配置的 Obsidian 路径。
 from cli_anything.video_learning.utils.skill_runtime import SkillRuntime  # 所有真实环境检查集中在 runtime。
 
 
+# --- 探测 CTranslate2 的 CUDA 可见性（仅供人确认 GPU 通道，不参与 ok 判定） ---
+def _inspect_gpu() -> dict:
+    try:
+        import ctranslate2                                                       # 与 ASR 路线同一后端，结论可直接对上运行日志。
+
+        devices = ctranslate2.get_cuda_device_count()
+        return {"available": devices > 0, "devices": devices, "error": None}
+    except Exception as exc:                                                     # DLL 缺失、驱动异常都不该让 doctor 整体失败。
+        return {"available": False, "devices": 0, "error": str(exc)}
+
+
 # --- 收集当前机器可复核的运行状态 ---
 def inspect_runtime(runtime: SkillRuntime | None = None) -> dict:
     active_runtime = runtime or SkillRuntime()
