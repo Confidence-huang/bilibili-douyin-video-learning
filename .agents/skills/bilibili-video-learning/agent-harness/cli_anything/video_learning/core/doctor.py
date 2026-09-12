@@ -41,6 +41,7 @@ def inspect_runtime(runtime: SkillRuntime | None = None) -> dict:
         "runtime_python": str(active_runtime.runtime_python),
         "tools": tools,
         "python_modules": modules,
+        "gpu": _inspect_gpu(),
         "obsidian_vault": obsidian_vault,
         "obsidian_vault_exists": os.path.isdir(obsidian_vault),
     }
