@@ -2,6 +2,14 @@
 
 All notable public changes are recorded here.
 
+## 1.4.1 - 2026-09-13
+
+- `bilibili_deep_archive.py` hardening: 412/429 rate-limit backoff retry on the view API,
+  `--metadata-only` light mode (favorites sync writes note + AI category without
+  downloading video), and `--ai-url/--ai-model/--categories` classification args that
+  write the `category` YAML field. Plugin bilibili-vault-link 1.0.1 passes these through.
+
+
 ## 1.4.0 - 2026-09-13
 
 - Add `scripts/bilibili_deep_archive.py`: Bilibili deep-archive engine sharing the douyin

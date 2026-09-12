@@ -4,7 +4,7 @@ from setuptools import find_namespace_packages, setup  # PEP 420 lets multiple c
 
 setup(
     name="cli-anything-video-learning",
-    version="1.4.0",
+    version="1.4.1",
     description="Agent-ready CLI for the local Bilibili and Douyin video-learning Skill",
     packages=find_namespace_packages(include=["cli_anything.*"]),
     install_requires=[

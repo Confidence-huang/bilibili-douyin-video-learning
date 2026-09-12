@@ -57,11 +57,25 @@ def resolve_bvid(url_or_id: str) -> str:
 
 
 def fetch_view(bvid: str) -> dict:
-    req = urllib.request.Request(f"{VIEW_API}?bvid={bvid}", headers=HEADERS)
-    d = json.loads(urllib.request.urlopen(req, timeout=30).read().decode())
-    if d.get("code") != 0:
-        raise RuntimeError(f"view API code={d.get('code')}: {d.get('message')}")
-    return d["data"]
+    import time as _t
+    last = None
+    for attempt in range(4):  # 412/超时退避重试
+        try:
+            req = urllib.request.Request(f"{VIEW_API}?bvid={bvid}", headers=HEADERS)
+            d = json.loads(urllib.request.urlopen(req, timeout=30).read().decode())
+            if d.get("code") != 0:
+                raise RuntimeError(f"view API code={d.get('code')}: {d.get('message')}")
+            return d["data"]
+        except urllib.error.HTTPError as e:
+            last = e
+            if e.code in (412, 429):
+                _t.sleep(10 * (attempt + 1))
+                continue
+            raise
+        except Exception as e:
+            last = e
+            _t.sleep(5)
+    raise last
 
 
 def ydl_download(bvid: str, out_mp4: Path, cookies_file: str | None) -> None:
@@ -85,6 +99,25 @@ def run_ffmpeg(args: list[str], exe: str = "ffmpeg") -> str:
     return proc.stdout + "\n" + proc.stderr  # Duration 在 stderr，场景打分在 stdout，合流供解析。
 
 
+def classify_text(url: str, model: str, categories: list[str], title: str, snippet: str) -> str:
+    prompt = ("从以下分类列表中选择最匹配的一个，只输出分类名本身，不要输出任何其他文字：\n"
+              + "\n".join(categories) + f"\n\n标题：{title}\n内容摘要：{snippet}")
+    payload = {"model": model, "max_tokens": 40, "temperature": 0,
+               "messages": [{"role": "user", "content": prompt}]}
+    req = urllib.request.Request(url.rstrip("/") + "/chat/completions",
+                                 data=json.dumps(payload).encode("utf-8"),
+                                 headers={"Content-Type": "application/json"}, method="POST")
+    with urllib.request.urlopen(req, timeout=90) as resp:
+        data = json.loads(resp.read().decode("utf-8"))
+    reply = str(data.get("choices", [{}])[0].get("message", {}).get("content", "")).strip()
+    if reply in categories:
+        return reply
+    for c in categories:
+        if c and c in reply:
+            return c
+    return ""
+
+
 def find_note(inbox: Path, bvid: str) -> Path | None:
     for p in inbox.iterdir():
         if p.is_file() and p.suffix == ".md" and bvid in p.name:
@@ -92,7 +125,7 @@ def find_note(inbox: Path, bvid: str) -> Path | None:
     return None
 
 
-def update_note(path: Path, section: str, frames_count: int, model: str, status: str = "success") -> None:
+def update_note(path: Path, section: str, frames_count: int, model: str, status: str = "success", category: str = "") -> None:
     text = path.read_text(encoding="utf-8")
     heading = "## \u56fe\u6587\u5bf9\u7167"
     start = text.find(heading)
@@ -113,6 +146,8 @@ def update_note(path: Path, section: str, frames_count: int, model: str, status:
         "transcript_provider": f'"{model}"',
         "deep_archived_at": f'"{stamp}"',
     }
+    if category:
+        fields["category"] = f'"{category}"'
     for key, value in fields.items():
         pattern = re.compile(rf"^{key}:.*$", re.M)
         if pattern.search(text):
@@ -142,9 +177,16 @@ def main() -> int:
     ap.add_argument("--cookies-file", default=os.environ.get("BILIBILI_COOKIE_FILE"),
                     help="B站 cookies 文件（会员/高清视频需要）；缺省读 BILIBILI_COOKIE_FILE")
     ap.add_argument("--no-transcribe", action="store_true", help="只抽帧不转写")
+    ap.add_argument("--metadata-only", action="store_true",
+                    help="收藏同步轻量模式：只取元数据+AI分类建笔记，不下载视频不抽帧不转写")
     ap.add_argument("--vision", action="store_true", help="逐帧生成视觉图注（本地 Ollama 等）")
     ap.add_argument("--vision-url", default=os.environ.get("DOUYIN_VIDEO_VISION_URL"))
     ap.add_argument("--vision-model", default=os.environ.get("DOUYIN_VIDEO_VISION_MODEL") or "qwen2.5vl:3b")
+    ap.add_argument("--ai-url", default=os.environ.get("DOUYIN_VIDEO_VISION_URL"),
+                    help="文本 AI 端点（自动分类用）；缺省同视觉端点环境变量")
+    ap.add_argument("--ai-model", default="qwen2.5:3b")
+    ap.add_argument("--categories", default=os.environ.get("BILI_AI_CATEGORIES", ""),
+                    help='逗号或换行分隔的分类列表；非空时为笔记写入 category 字段（环境变量 BILI_AI_CATEGORIES）')
     args = ap.parse_args()
 
     bvid = args.bvid or (resolve_bvid(args.url) if args.url else None)
@@ -162,6 +204,48 @@ def main() -> int:
     workdir = Path(args.workdir or (Path(os.environ.get("TEMP") or os.environ.get("TMP") or "/tmp")) / "bilibili-vault-link" / bvid)
     workdir.mkdir(parents=True, exist_ok=True)
     video_path = workdir / "video.mp4"
+
+    if args.metadata_only:
+        log("[archive] metadata-only mode ...")
+        view = fetch_view(bvid)
+        title = str(view.get("title") or bvid)
+        author = str((view.get("owner") or {}).get("name") or "")
+        duration = int(view.get("duration") or 0)
+        desc = str(view.get("desc") or "")
+        url = f"https://www.bilibili.com/video/{bvid}"
+        category = ""
+        cats = [x.strip() for x in re.split("[" + chr(10) + ",，;；]", args.categories or "") if x.strip()]
+        if cats:
+            ai_url = (args.ai_url or "").rstrip("/")
+            if ai_url:
+                try:
+                    category = classify_text(ai_url, args.ai_model, cats, title, desc[:220])
+                    log(f"[archive] category: {category or '(未匹配)'}")
+                except Exception as e:
+                    log(f"[archive] classify fail: {str(e)[:80]}")
+        note = Path(args.note) if args.note else find_note(inbox, bvid)
+        stamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        if note and note.is_file():
+            update_note(note, "", 0, f"faster-whisper:{args.model}", "not_requested", category)
+            action = "updated"
+        else:
+            safe_title = re.sub(r'[\/:*?"<>|#^\[\]%]+', " ", title).strip()[:60] or f"B站视频_{bvid}"
+            dur_line = f'duration: "{duration // 60}分{duration % 60}秒"' if duration else 'duration: ""'
+            lines = ["---", f'bvid: "{bvid}"', f'title: "{title}"', 'type: "视频"',
+                     'source: "B站收藏"', f'author: "{author}"', f'url: "{url}"', dur_line]
+            if category:
+                lines.append(f'category: "{category}"')
+            lines += ["transcript_status: not_requested", "tags:", "  - B站", "  - 收藏",
+                      "---", "", f"# {title}", "",
+                      f"作者：**{author}** ｜ [原视频链接]({url})", ""]
+            if desc:
+                lines += ["> [!info]- 简介", f"> {desc}", ""]
+            write_text_atomically(note, "\n".join(lines))
+            action = "created"
+        print(json.dumps({"ok": True, "bvid": bvid, "action": action, "note": str(note),
+                          "frames": 0, "segments": 0, "transcript_status": "not_requested",
+                          "category": category, "duration": duration}, ensure_ascii=False), flush=True)
+        return 0
 
     view: dict = {}
     if video_path.exists() and video_path.stat().st_size > 0:
@@ -223,12 +307,24 @@ def main() -> int:
                     log(f"[archive] vision fail f{fr['idx']:02d}: {str(e)[:90]}")
             log(f"[archive] captions: {okc}/{len(frames)}")
 
+    category = ""
+    cats = [x.strip() for x in re.split(r"[\n,，;；]", args.categories or "") if x.strip()]
+    if cats:
+        ai_url = (args.ai_url or args.vision_url or "").rstrip("/")
+        if ai_url:
+            try:
+                snippet = re.sub(r"\s+", " ", " ".join(s["content"] for s in segments))[:180] or str(view.get("desc") or "")[:180]
+                category = classify_text(ai_url, args.ai_model, cats, title, snippet)
+                log(f"[archive] category: {category or '(未匹配)'}")
+            except Exception as e:
+                log(f"[archive] classify fail: {str(e)[:80]}")
+
     section = build_section(frames, segments, duration)
     inbox.mkdir(parents=True, exist_ok=True)
     note = Path(args.note) if args.note else find_note(inbox, bvid)
     url = f"https://www.bilibili.com/video/{bvid}"
     if note and note.is_file():
-        update_note(note, section, len(frames), f"faster-whisper:{args.model}", transcript_status)
+        update_note(note, section, len(frames), f"faster-whisper:{args.model}", transcript_status, category)
         action = "updated"
     else:
         safe_title = re.sub(r'[\\/:*?"<>|#^[\]%]+', " ", title).strip()[:60] or f"B\u7ad9\u89c6\u9891_{bvid}"
@@ -238,6 +334,7 @@ def main() -> int:
         lines = ["---", f'bvid: "{bvid}"', f'title: "{title}"', 'type: "\u89c6\u9891"',
                  'source: "B\u7ad9\u5f52\u6863"', f'author: "{author}"', f'url: "{url}"', dur_line,
                  "transcript_status: " + transcript_status, f"frames_extracted: {len(frames)}",
+                 *( [f'category: "{category}"'] if category else [] ),
                  f'transcript_provider: "faster-whisper:{args.model}"', f'deep_archived_at: "{stamp}"',
                  "tags:", "  - B\u7ad9", "  - \u6280\u80fd\u5f52\u6863", "---", "", f"# {title}", "", section]
         write_text_atomically(note, "\n".join(lines))
