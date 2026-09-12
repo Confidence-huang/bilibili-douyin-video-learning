@@ -2,6 +2,14 @@
 
 All notable public changes are recorded here.
 
+## 1.3.5 - 2026-09-13
+
+- Add `scripts/transcribe_audio_cli.py`: a standalone JSON CLI (`--audio/--model/--language/--device`)
+  around the shared faster-whisper entry, so external callers (e.g. the Douyin deep-archive
+  Obsidian plugin) can run local GPU transcription with clean-stdout JSON and stderr progress.
+- Make the in-vault target folder configurable via `BILIBILI_OBSIDIAN_FOLDER` (mirrors
+  `BILIBILI_OBSIDIAN_VAULT`); the historical `20_沉淀箱/Bilibili` default still applies when unset.
+
 ## 1.3.4 - 2026-09-13
 
 - Add a `gpu` section to `doctor status` reporting CTranslate2 CUDA visibility

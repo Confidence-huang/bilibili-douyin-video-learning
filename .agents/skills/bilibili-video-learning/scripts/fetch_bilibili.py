@@ -50,7 +50,16 @@ def default_obsidian_vault():
 
 
 DEFAULT_OBSIDIAN_VAULT = default_obsidian_vault()
-DEFAULT_OBSIDIAN_FOLDER = r"20_沉淀箱/Bilibili"
+
+
+def default_obsidian_folder():
+    configured_folder = os.environ.get("BILIBILI_OBSIDIAN_FOLDER")    # 库内目标文件夹同样允许按机器显式配置。
+    if configured_folder:
+        return configured_folder.strip("/\\") or r"20_沉淀箱/Bilibili"
+    return r"20_沉淀箱/Bilibili"                                     # 未配置时保留历史默认位置。
+
+
+DEFAULT_OBSIDIAN_FOLDER = default_obsidian_folder()
 
 
 # ─── yt-dlp invocation ────────────────────────────────────────────
