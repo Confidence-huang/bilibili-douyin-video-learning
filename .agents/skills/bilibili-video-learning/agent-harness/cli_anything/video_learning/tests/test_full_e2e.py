@@ -46,8 +46,10 @@ class TestCLISubprocess:
         assert "doctor" in result.stdout
 
     def test_version(self):
+        from cli_anything.video_learning import __version__  # 断言跟随包内唯一版本源，避免发版忘记改测试。
+
         result = self._run(["--version"])
-        assert "1.3.3" in result.stdout
+        assert __version__ in result.stdout
 
     def test_normalize_bilibili_json(self):
         result = self._run(["--json", "source", "normalize", "https://www.bilibili.com/video/BV1xx411c7mD?p=2"])
