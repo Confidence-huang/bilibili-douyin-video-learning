@@ -78,6 +78,38 @@ def fetch_view(bvid: str) -> dict:
     raise last
 
 
+def download_cover(pic_url: str, cover_dir: Path, media_rel: str, bvid: str) -> str:
+    """下载视频封面到 <media>/cover/<bvid>.<ext>，返回库内相对路径；失败返回空串。"""
+    m = re.search(r"\.(jpe?g|png|webp|gif)(?:[?#]|$)", pic_url, re.I)
+    ext = "." + (m.group(1).lower().replace("jpeg", "jpg") if m else "jpg")
+    cover_dir.mkdir(parents=True, exist_ok=True)
+    out = cover_dir / f"{bvid}{ext}"
+    if not out.exists():
+        req = urllib.request.Request(pic_url, headers=HEADERS)
+        data = urllib.request.urlopen(req, timeout=30).read()
+        if not data:
+            return ""
+        out.write_bytes(data)
+    return f"{media_rel}/cover/{bvid}{ext}"
+
+
+def ensure_frontmatter_fields(path: Path, fields: list[str]) -> int:
+    """仅在 frontmatter 缺失对应键时插入（不覆盖已有值，保护已晋升状态等）。"""
+    text = path.read_text(encoding="utf-8")
+    if not text.startswith("---"):
+        return 0
+    end = text.find("\n---", 3)
+    if end < 0:
+        return 0
+    added = [line for line in fields
+             if not re.search(rf"^{re.escape(line.split(':', 1)[0])}:", text[:end], re.M)]
+    if not added:
+        return 0
+    text = text[:end] + "\n" + "\n".join(added) + text[end:]
+    write_text_atomically(path, text)
+    return len(added)
+
+
 def ydl_download(bvid: str, out_mp4: Path, cookies_file: str | None) -> None:
     exe = Path(sys.executable).parent / ("yt-dlp.exe" if os.name == "nt" else "yt-dlp")
     exe = str(exe) if exe.exists() else "yt-dlp"
@@ -223,11 +255,22 @@ def main() -> int:
                     log(f"[archive] category: {category or '(未匹配)'}")
                 except Exception as e:
                     log(f"[archive] classify fail: {str(e)[:80]}")
+        cover_rel = ""
+        pic = str(view.get("pic") or "")
+        if pic:
+            try:
+                cover_rel = download_cover(pic, media_root / "cover", media_rel, bvid)
+                log(f"[archive] cover: {cover_rel or 'empty'}")
+            except Exception as e:
+                log(f"[archive] cover fail: {str(e)[:80]}")
+        contract = ['vault_status: "待整合"', 'promoted_to: ""']
+        if cover_rel:
+            contract.insert(0, f'cover: "{cover_rel}"')
         inbox.mkdir(parents=True, exist_ok=True)  # 新夹目录首次创建
         note = Path(args.note) if args.note else find_note(inbox, bvid)
         stamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         if note and note.is_file():
-            update_note(note, "", 0, f"faster-whisper:{args.model}", "not_requested", category)
+            ensure_frontmatter_fields(note, contract)  # 已有笔记只补契约字段，不覆盖状态
             action = "updated"
         else:
             safe_title = re.sub(r'[\/:*?"<>|#^\[\]%]+', " ", title).strip()[:60] or f"B站视频_{bvid}"
@@ -237,6 +280,7 @@ def main() -> int:
                      'source: "B站收藏"', f'author: "{author}"', f'url: "{url}"', dur_line]
             if category:
                 lines.append(f'category: "{category}"')
+            lines += contract
             lines += ["transcript_status: not_requested", "tags:", "  - B站", "  - 收藏",
                       "---", "", f"# {title}", "",
                       f"作者：**{author}** ｜ [原视频链接]({url})", ""]
@@ -325,7 +369,19 @@ def main() -> int:
     inbox.mkdir(parents=True, exist_ok=True)
     note = Path(args.note) if args.note else find_note(inbox, bvid)
     url = f"https://www.bilibili.com/video/{bvid}"
+    cover_rel = ""
+    pic = str(view.get("pic") or "")
+    if pic:
+        try:
+            cover_rel = download_cover(pic, media_root / "cover", media_rel, bvid)
+            log(f"[archive] cover: {cover_rel or 'empty'}")
+        except Exception as e:
+            log(f"[archive] cover fail: {str(e)[:80]}")
+    contract = ['vault_status: "待整合"', 'promoted_to: ""']
+    if cover_rel:
+        contract.insert(0, f'cover: "{cover_rel}"')
     if note and note.is_file():
+        ensure_frontmatter_fields(note, contract)  # 只补缺失的契约/封面字段，不覆盖已有值
         update_note(note, section, len(frames), f"faster-whisper:{args.model}", transcript_status, category)
         action = "updated"
     else:
@@ -337,6 +393,7 @@ def main() -> int:
                  'source: "B\u7ad9\u5f52\u6863"', f'author: "{author}"', f'url: "{url}"', dur_line,
                  "transcript_status: " + transcript_status, f"frames_extracted: {len(frames)}",
                  *( [f'category: "{category}"'] if category else [] ),
+                 *contract,
                  f'transcript_provider: "faster-whisper:{args.model}"', f'deep_archived_at: "{stamp}"',
                  "tags:", "  - B\u7ad9", "  - \u6280\u80fd\u5f52\u6863", "---", "", f"# {title}", "", section]
         write_text_atomically(note, "\n".join(lines))
