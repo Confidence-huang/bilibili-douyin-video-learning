@@ -223,6 +223,7 @@ def main() -> int:
                     log(f"[archive] category: {category or '(未匹配)'}")
                 except Exception as e:
                     log(f"[archive] classify fail: {str(e)[:80]}")
+        inbox.mkdir(parents=True, exist_ok=True)  # 新夹目录首次创建
         note = Path(args.note) if args.note else find_note(inbox, bvid)
         stamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         if note and note.is_file():
@@ -230,6 +231,7 @@ def main() -> int:
             action = "updated"
         else:
             safe_title = re.sub(r'[\/:*?"<>|#^\[\]%]+', " ", title).strip()[:60] or f"B站视频_{bvid}"
+            note = inbox / f"{safe_title} [{bvid}].md"
             dur_line = f'duration: "{duration // 60}分{duration % 60}秒"' if duration else 'duration: ""'
             lines = ["---", f'bvid: "{bvid}"', f'title: "{title}"', 'type: "视频"',
                      'source: "B站收藏"', f'author: "{author}"', f'url: "{url}"', dur_line]
