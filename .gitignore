@@ -9,6 +9,7 @@ __pycache__/
 # Local runtimes and model caches
 .venv/
 .venv-*/
+.ci-venv/
 models/
 model-cache/
 
