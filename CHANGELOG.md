@@ -2,6 +2,26 @@
 
 All notable public changes are recorded here.
 
+## 1.4.2 - 2026-09-14
+
+- `bilibili_deep_archive.py`: metadata-only and deep-archive modes now fetch the view API
+  cover image (`附件/bili-media/cover/<bvid>.<ext>`, extension probed from the URL suffix).
+- New notes carry the `vault_status` and `promoted_to` contract fields; added
+  `ensure_frontmatter_fields` so updating an existing note only backfills missing keys and
+  never overwrites an already-promoted status.
+- View API failures (62002 / -404 dead links) fail as-is and are counted by the caller.
+- Version declarations are now parity-checked across all three sources —
+  `pyproject.toml`, `agent-harness/setup.py`, and
+  `cli_anything/video_learning/__init__.py` — enforced by
+  `tools/validate_repository.py`. Both `setup.py` and `__init__.py` had been left at 1.4.1;
+  `__init__.py` is what `--version` and the REPL banner report, so the CLI advertised a stale release.
+- Added `tools/cli_smoke.py`, run by CI on both platforms: it proves the installed console
+  script starts, that `--version` matches `pyproject.toml`, and that `doctor status --json`
+  still emits its documented keys. `doctor` legitimately exits non-zero when yt-dlp/FFmpeg
+  are absent, so the check asserts shape and exit code rather than `ok`.
+- Added `docs/DECISIONS.md` recording why the project works the way it does, including the
+  discarded options and the measured CUDA performance data.
+
 ## 1.4.1 - 2026-09-13
 
 - `bilibili_deep_archive.py` hardening: 412/429 rate-limit backoff retry on the view API,

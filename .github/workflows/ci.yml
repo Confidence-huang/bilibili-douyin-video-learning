@@ -59,6 +59,13 @@ jobs:
           export PATH="$PWD/.ci-venv/bin:$PATH"
           .ci-venv/bin/python -m pytest -q "$skill_root/agent-harness/cli_anything/video_learning/tests"
 
+      - name: Smoke-test the installed CLI entrypoint
+        run: |
+          skill_root="$PWD/.agents/skills/bilibili-video-learning"
+          export BILIBILI_VIDEO_LEARNING_ROOT="$skill_root"
+          export BILIBILI_VIDEO_LEARNING_PYTHON="$PWD/.ci-venv/bin/python"
+          .ci-venv/bin/python ./tools/cli_smoke.py
+
   windows-source-and-offline-tests:
     runs-on: windows-latest
     timeout-minutes: 20
@@ -117,3 +124,11 @@ jobs:
           $skillRoot = Join-Path $PWD ".agents\skills\bilibili-video-learning"
           python "$skillRoot\tests\runtime.py"
           python "$skillRoot\tests\behavior.py"
+
+      - name: Smoke-test the installed CLI entrypoint
+        shell: pwsh
+        run: |
+          $skillRoot = Join-Path $PWD ".agents\skills\bilibili-video-learning"
+          $env:BILIBILI_VIDEO_LEARNING_ROOT = $skillRoot
+          $env:BILIBILI_VIDEO_LEARNING_PYTHON = (Resolve-Path ".\.ci-venv\Scripts\python.exe").Path
+          .\.ci-venv\Scripts\python.exe .\tools\cli_smoke.py

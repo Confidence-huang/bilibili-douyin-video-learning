@@ -87,7 +87,7 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File .\verify.ps1 -SkipRuntime
 
 `npx skills add` 只安装 Skill 源码；完整 CLI、FFmpeg 调用和 ASR 仍需运行对应平台安装器。
 
-完整安装说明见 [INSTALL.md](./INSTALL.md)，命令示例见 [USAGE.md](./USAGE.md)，安全边界见 [SECURITY.md](./SECURITY.md)。
+完整安装说明见 [INSTALL.md](./INSTALL.md)，命令示例见 [USAGE.md](./USAGE.md)，安全边界见 [SECURITY.md](./SECURITY.md)，技术决策与取舍见 [docs/DECISIONS.md](./docs/DECISIONS.md)。
 
 ## 项目结构
 

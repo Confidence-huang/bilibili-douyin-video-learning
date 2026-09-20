@@ -98,6 +98,42 @@ def validate_cli_skill_parity() -> None:
         raise RuntimeError("The two cli-anything-video-learning CLI_GUIDE.md files differ")
 
 
+# --- Keep every declared version in lockstep ---
+def declared_version(text: str, pattern: re.Pattern[str], label: str) -> str:
+    match = pattern.search(text)
+    if match is None:
+        raise RuntimeError(f"{label}: version declaration not found")
+    return match.group(1)
+
+
+def validate_version_parity() -> None:
+    """Every version declaration must agree, so a bump cannot silently miss one file."""
+    version_pattern = re.compile(r'^\s*version\s*=\s*"([^"]+)"', flags=re.MULTILINE)
+    dunder_pattern = re.compile(r'^__version__\s*=\s*"([^"]+)"', flags=re.MULTILINE)
+    harness = SKILL_ROOT / "agent-harness"
+    declared = {
+        "pyproject.toml": declared_version(
+            (SKILL_ROOT / "pyproject.toml").read_text(encoding="utf-8"),
+            version_pattern,
+            "pyproject.toml",
+        ),
+        "agent-harness/setup.py": declared_version(
+            (harness / "setup.py").read_text(encoding="utf-8"),
+            version_pattern,
+            "agent-harness/setup.py",
+        ),
+        # The CLI banner and `--version` read this constant, not the packaging metadata.
+        "cli_anything/video_learning/__init__.py": declared_version(
+            (harness / "cli_anything" / "video_learning" / "__init__.py").read_text(encoding="utf-8"),
+            dunder_pattern,
+            "cli_anything/video_learning/__init__.py",
+        ),
+    }
+    if len(set(declared.values())) != 1:
+        details = "\n".join(f"  {name}: {version}" for name, version in declared.items())
+        raise RuntimeError(f"version declarations disagree:\n{details}")
+
+
 # --- Run all publication gates and provide one compact success line ---
 def main() -> int:
     paths = publishable_paths()                                                    # Discovery happens once for consistent counts.
@@ -105,7 +141,8 @@ def main() -> int:
     validate_skill_frontmatter()
     validate_no_nested_skill_entrypoints(paths)
     validate_cli_skill_parity()
-    print(f"REPOSITORY_OK: {len(paths)} publishable files passed privacy, Skill, and parity checks")
+    validate_version_parity()
+    print(f"REPOSITORY_OK: {len(paths)} publishable files passed privacy, Skill, parity, and version checks")
     return 0
 
 
