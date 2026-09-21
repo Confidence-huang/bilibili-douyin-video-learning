@@ -83,15 +83,19 @@
 
 ---
 
-## D5. 版本号必须四处一致，且由 CI 强制
+## D5. 版本号必须同步，且由 CI 强制
 
-**决策**：以下四处版本号必须相同，由 `tools/validate_repository.py::validate_version_parity()`
+**决策**：以下版本号必须相同，由 `tools/validate_repository.py::validate_version_parity()`
 与 `tools/cli_smoke.py` 双重强制：
 
-1. `.agents/skills/bilibili-video-learning/pyproject.toml`
+1. `.agents/skills/bilibili-video-learning/pyproject.toml` ← 权威来源
 2. `.agents/skills/bilibili-video-learning/agent-harness/setup.py`
 3. `.agents/skills/bilibili-video-learning/agent-harness/cli_anything/video_learning/__init__.py`
-4. `uv.lock` 自引用条目
+
+**第 4 处是派生的，不单独校验**：`uv.lock` 的自引用条目由
+`uv lock --check` 在 CI 里单独把关，`validate_version_parity` 不重复检查它——
+因为 `uv.lock` 是生成物，改它应该走 `uv lock`，而不是文本替换。
+两个闸门分工明确：一个管手写声明，一个管生成物的新鲜度。
 
 **背景（真实事故，同一次发版两个文件都漏了）**：commit `6706dec` 把 `pyproject.toml`
 从 1.4.1 升到 1.4.2，但：
@@ -199,9 +203,13 @@ GPU 不可用是正常降级，不是故障。
 `npx skills add ... -g -y`。它不参与 CI、不参与运行时。
 
 **唯一相关约束**：npm 上的 `skills` 包声明 `engines: node >=22.20.0`。
-Node 22 与 Node 26 **都满足**。
 
-**重新评估触发条件**：如果未来引入基于 Node 的构建步骤（例如 JS 版 Skill 包装器）。
+核对于 2026-09-21：`skills@1.7.0` 的 engines 为 `node >=22.20.0`，
+而当前 Node 版本线是 **24 LTS**（`24.21.0`）与 **26 Current**（`26.9.0`，非 LTS）。
+22/24/26 **都满足**，所以不存在"必须换 Node 版本"这回事。
+
+**重新评估触发条件**：如果未来引入基于 Node 的构建步骤（例如 JS 版 Skill 包装器），
+或 `skills` 包把 engines 下限提到超过 22.20.0。
 
 ---
 
@@ -240,6 +248,102 @@ CI 立刻在 **两个平台都失败**，报 "missing documented keys"。
 
 ---
 
+## D12. 笔记骨架外置到 `prompts/*.md`，但默认输出保持字节不变
+
+**决策**：笔记的小节标题来自 `.agents/skills/bilibili-video-learning/prompts/*.md`，
+由 `scripts/prompt_templates.py` 加载。模板缺失或不可读时**降级到内置骨架**，不抛异常。
+
+**背景**：同一套中文小节标题原本硬编码在三个后端里
+（`build_notes.py`、`fetch_bilibili.py`、`douyin_extract.py`）。
+改一个标题要在三个文件里找字符串，且没有任何东西保证它们一致。
+
+**取舍（关键）**：模板化只替换**小节标题**，不接管表格、YAML frontmatter、时间轴格式。
+原因是笔记里混着 `datetime.now()`，任何整段模板渲染都会让输出随运行时间变化，
+从而无法用测试断言"重构没有改变默认输出"。
+只换标题，就可以把默认输出钉成一个**逐字节可比**的契约。
+
+**失败行为**：`prompts/` 目录缺失时，`build_notes._template_sections()` 返回
+`"builtin-fallback"` 并继续出笔记。这是刻意的：
+笔记是流水线的最后一步，前面已经花了几分钟的 ASR，不能因为一个模板文件丢了就整单失败。
+降级**会被报告**（stderr 一行 `template=<版本>`），所以它不是静默的。
+
+**验证方式**：
+- `tests/test_prompt_templates.py::test_build_notes_keeps_the_original_default_headings`
+  钉住原骨架的七个标题与时间轴格式；
+- `::test_douyin_note_falls_back_when_template_is_missing` 断言模板缺失时仍能出笔记；
+- `::test_template_name_must_be_a_bare_stem` 阻止路径穿越式模板名。
+
+**重新评估触发条件**：如果要让用户自定义**整篇**模板（含表格），
+需要先解决 `datetime.now()` 造成的不可比问题（例如把时间作为参数注入）。
+
+---
+
+## D13. 依赖版本下限必须写明原因
+
+**决策**：`pyproject.toml` 里每个 `>=` 下限都在紧邻注释或本表里给出理由，
+不接受"顺手升一下"的裸下限。
+
+**背景**：版本下限有两种来源——**安全修复**和**功能/兼容性需要**。
+两者在 `pyproject.toml` 里长得一模一样（都是 `>=`），
+于是下一个人无法判断"能不能降下来"或"这个数字是不是随便写的"。
+
+**当前全部下限及理由**：
+
+| 依赖 | 下限 | 性质 | 理由 |
+|---|---|---|---|
+| `click` | 8.1.7 | 功能 | 本 CLI 依赖的 `click.Choice` 与 context object 行为 |
+| `imageio-ffmpeg` | 0.6.0 | 功能 | 首个自带 FFmpeg 支持抖音画质探测所需 `-f` 探测的版本 |
+| `prompt-toolkit` | 3.0.48 | 修复 | 修复 Windows Terminal + CJK 输入下的 resize/重绘崩溃 |
+| `requests` | 2.32.4 | **安全** | 移除 CVE-2024-47081 / GHSA-9hjg-9r4m-mvj7 的 `.netrc` 凭据泄漏行为 |
+| `setuptools` | 75.0.0 | 兼容 | 移除在 Python 3.12+ 上失效的内置 `pkg_resources` 路径 |
+| `you-get` | 0.4.1743 | 功能 | 仅保留为历史 fallback（见 D6），非主路径 |
+| `yt-dlp` | 2026.7.4 | 功能 | 首个支持对抖音使用 `--impersonate chrome-110:windows-10` 的版本 |
+| `faster-whisper` | 1.2.1 | 功能 | `asr` extra；提供本机实测的 CTranslate2 加速路径（见 D8） |
+| `curl-cffi` | 0.15.0 | 功能 | `impersonate` extra；与 yt-dlp 声明的 impersonation 版本对齐 |
+| `pytest` | 8.4.1 | 功能 | `dev` 组；`monkeypatch` 与临时目录夹具的现行行为 |
+
+**注意**：`requests` 下限是**唯一有安全含义**的一条。改动它需要重新核对
+CVE-2024-47081 的修复范围，而不是只看能否解析。
+
+**取舍**：注释让 `pyproject.toml` 变长。换来的是"这个数字不能动"这件事本身可读。
+
+**重新评估触发条件**：依赖自身发布新的 CVE 时，
+**追加新行**而不是改写旧行的理由——历史理由仍然有效，只是不再充分。
+
+---
+
+## D14. 三个宿主的 interface 清单必须一致，由 CI 比对
+
+**决策**：`agents/openai.yaml`、`agents/claude.yaml`、`agents/gemini.yaml`
+三个文件都必须存在，且 `display_name` / `short_description` / `brand_color`
+三个字段必须与 `openai.yaml` 完全相同。由
+`tools/validate_repository.py::validate_host_manifests()` 强制。
+
+**背景**：Skill 的**行为**只有一个来源（`SKILL.md`），三个宿主都读它。
+但**展示信息**是每个宿主读各自的文件。这意味着一个显示名要写在三个地方，
+而"改名只改了一个宿主"是这类多宿主项目最典型的静默漂移。
+
+**为什么是三份而不是一份 + 生成**：
+各宿主的清单格式并不完全一致（Claude 用 `invocation_name`，
+OpenAI 用 `$skill-name` 形式的 `default_prompt`），
+强行共用一个文件会需要一层转换脚本，而转换脚本本身也要维护。
+现在的做法是**允许各自的私有字段不同，但把共享字段钉死**——
+重复仍然是重复，但重复的部分不会漂移。
+
+**校验边界**：只比对共享的三个字段，以及"必须引用 Skill 名"。
+不比对 `default_prompt` 的措辞，因为各宿主的调用语法本来就不同
+（OpenAI 用 `$bilibili-video-learning`，Claude/Gemini 用裸名）。
+把措辞也钉死会阻止为新宿主写自然的提示语。
+
+**验证方式**：故障注入三次，全部按预期失败——
+`claude.yaml` 改 `brand_color`、`gemini.yaml` 改 `display_name`、删除 `gemini.yaml`。
+消息分别指明"哪个文件的哪个字段与 openai.yaml 不一致"。
+
+**重新评估触发条件**：如果某个宿主开始支持从 `SKILL.md` 读取展示信息，
+该宿主的清单文件可以删掉，本决策相应收窄。
+
+---
+
 ## 决策索引
 
 | 编号 | 主题 | 是否可推翻 |
@@ -255,3 +359,6 @@ CI 立刻在 **两个平台都失败**，报 "missing documented keys"。
 | D9 | CI 不跑 GPU 路径 | 可（若回归频发） |
 | D10 | 无 Node 依赖 | 可（若引入 JS 构建） |
 | D11 | CI 冒烟只断言确定性契约 | 可（若 CI 装齐工具） |
+| D12 | 笔记骨架外置 + 降级不失败 | 可（若需整篇模板） |
+| D13 | 依赖下限必须写明原因 | 可（若改用带注释的锁文件工具） |
+| D14 | 三宿主 interface 清单一致 | 可（若宿主改读 SKILL.md） |

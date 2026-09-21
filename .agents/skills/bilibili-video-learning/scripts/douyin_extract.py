@@ -31,6 +31,7 @@ from speech_to_text import transcribe_audio_file                                
 from runtime_output import log, sanitize_diagnostics, sanitize_text             # 进度和结构化错误共用脱敏边界。
 from file_output import write_json_atomically, write_text_atomically             # 缓存和最终 Markdown 只原子发布完整文件。
 from media_tools import find_ffmpeg                                              # 所有平台共用同一 FFmpeg 解析规则。
+from prompt_templates import load_template                                       # 笔记骨架来自可评审的 prompts/*.md。
 
 
 CACHE_SCHEMA_VERSION = 2                                                         # v2 缓存带参数身份和真实视频 ID 双重校验。
@@ -559,6 +560,20 @@ def to_markdown(result: dict, *, include_transcript: bool = False) -> str:
     meta = result["metadata"]
     lines = []
 
+    # Section headings come from prompts/douyin-standard.md. Missing/unreadable
+    # templates fall back to the literal headings so an already-expensive ASR run
+    # still produces a note instead of failing at the last step.
+    loaded_template = load_template("douyin-standard")
+    sections: dict[str, str] = {}
+    if loaded_template is not None:
+        for line in loaded_template[1].splitlines():
+            stripped = line.strip()
+            if stripped.startswith("## "):
+                sections[stripped[3:].strip()] = stripped
+
+    def section(title: str) -> str:
+        return sections.get(title, f"## {title}")
+
     # YAML frontmatter
     lines.append("---")
     lines.append(f'title: "{meta.get("title", "")}"')
@@ -575,7 +590,7 @@ def to_markdown(result: dict, *, include_transcript: bool = False) -> str:
     lines.append(f"# {meta.get('title', meta.get('fulltitle', ''))}\n")
 
     # Basic info
-    lines.append("## 基本信息\n")
+    lines.append(section("基本信息") + "\n")
     lines.append("| 字段 | 内容 |")
     lines.append("|------|------|")
     lines.append(f'| 平台 | 抖音 Douyin |')
@@ -595,7 +610,7 @@ def to_markdown(result: dict, *, include_transcript: bool = False) -> str:
     # Description
     desc = meta.get("description", "").strip()
     if desc and desc != meta.get("title", ""):
-        lines.append("## 视频简介\n")
+        lines.append(section("视频简介") + "\n")
         lines.append(desc)
         lines.append("")
 
@@ -610,9 +625,9 @@ def to_markdown(result: dict, *, include_transcript: bool = False) -> str:
         lines.append("> 已完成 ASR，但默认未写入完整转录。仅在内容自有或明确授权时使用 `--include-transcript`。")
         lines.append("")
 
-    lines.append("## 一句话总结\n\n[待整理]\n")
-    lines.append("## 核心要点\n\n- [待整理]\n")
-    lines.append("## 详细笔记\n\n[待整理]\n")
+    lines.append(section("一句话总结") + "\n\n[待整理]\n")
+    lines.append(section("核心要点") + "\n\n- [待整理]\n")
+    lines.append(section("详细笔记") + "\n\n[待整理]\n")
 
     return "\n".join(lines)
 

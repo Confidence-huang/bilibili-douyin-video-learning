@@ -130,3 +130,10 @@ Load only the references needed for the current task:
 - Output shapes and multi-video/course templates: `references/output_templates.md`
 - ASR cleanup, timestamp merging, and uncertain-term handling: `references/transcript_cleaning.md`
 - Access, privacy, copyright, and credential boundaries: `references/safety_and_permissions.md`
+
+The single-video note skeleton also exists as a versioned template at `prompts/bilibili-standard.md`
+(`template-version: 1`). `scripts/build_notes.py` and `scripts/douyin_extract.py` read their section
+headings from it; tables, YAML frontmatter, and the timeline format stay in code. Changing a heading
+in the template changes every generated note, so treat that file as a contract rather than a draft.
+When the template is unavailable the scripts fall back to their built-in headings and print
+`template=builtin-fallback`, which means the note is valid but the template was not applied.

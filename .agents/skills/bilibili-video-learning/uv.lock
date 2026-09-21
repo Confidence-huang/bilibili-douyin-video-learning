@@ -78,6 +78,9 @@ cuda-compat = [
     { name = "openai-whisper" },
     { name = "torch" },
 ]
+impersonate = [
+    { name = "curl-cffi" },
+]
 
 [package.dev-dependencies]
 dev = [
@@ -87,6 +90,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "click", specifier = ">=8.1.7" },
+    { name = "curl-cffi", marker = "extra == 'impersonate'", specifier = ">=0.15.0" },
     { name = "faster-whisper", marker = "extra == 'asr'", specifier = ">=1.2.1" },
     { name = "imageio-ffmpeg", specifier = ">=0.6.0" },
     { name = "openai-whisper", marker = "extra == 'cuda-compat'", specifier = "==20250625" },
@@ -97,7 +101,7 @@ requires-dist = [
     { name = "you-get", specifier = ">=0.4.1743" },
     { name = "yt-dlp", extras = ["curl-cffi", "default"], specifier = ">=2026.7.4" },
 ]
-provides-extras = ["asr", "cuda-compat"]
+provides-extras = ["asr", "impersonate", "cuda-compat"]
 
 [package.metadata.requires-dev]
 dev = [{ name = "pytest", specifier = ">=8.4.1" }]

@@ -134,6 +134,46 @@ def validate_version_parity() -> None:
         raise RuntimeError(f"version declarations disagree:\n{details}")
 
 
+# --- Keep every host-side interface manifest in agreement ---
+def validate_host_manifests() -> None:
+    """All host manifests must agree on the shared presentation fields.
+
+    `openai.yaml` is the original; `claude.yaml` and `gemini.yaml` exist because
+    each host reads its own file. Duplicating a display name across three files is
+    exactly how a rename ends up applied to one host and forgotten in the others,
+    so the shared subset is compared here instead of trusted.
+    """
+    agents_dir = SKILL_ROOT / "agents"
+    shared_keys = ("display_name", "short_description", "brand_color")
+    manifests: dict[str, dict] = {}
+    for host in ("openai", "claude", "gemini"):
+        path = agents_dir / f"{host}.yaml"
+        if not path.is_file():
+            raise RuntimeError(f"missing host manifest: agents/{host}.yaml")
+        payload = yaml.safe_load(path.read_text(encoding="utf-8"))
+        if not isinstance(payload, dict) or not isinstance(payload.get("interface"), dict):
+            raise RuntimeError(f"agents/{host}.yaml must define an `interface:` mapping")
+        manifests[host] = payload["interface"]
+
+    reference_name = manifests["openai"].get("display_name")
+    for host, interface in manifests.items():
+        for key in shared_keys:
+            value = interface.get(key)
+            if not value:
+                raise RuntimeError(f"agents/{host}.yaml is missing interface.{key}")
+            if value != manifests["openai"][key]:
+                raise RuntimeError(
+                    f"agents/{host}.yaml interface.{key} is {value!r}, "
+                    f"but agents/openai.yaml declares {manifests['openai'][key]!r}"
+                )
+        invocation = interface.get("invocation_name") or str(interface.get("default_prompt") or "")
+        if "bilibili-video-learning" not in invocation:
+            raise RuntimeError(
+                f"agents/{host}.yaml does not reference the Skill name {reference_name!r} "
+                "through invocation_name or default_prompt"
+            )
+
+
 # --- Run all publication gates and provide one compact success line ---
 def main() -> int:
     paths = publishable_paths()                                                    # Discovery happens once for consistent counts.
@@ -142,7 +182,11 @@ def main() -> int:
     validate_no_nested_skill_entrypoints(paths)
     validate_cli_skill_parity()
     validate_version_parity()
-    print(f"REPOSITORY_OK: {len(paths)} publishable files passed privacy, Skill, parity, and version checks")
+    validate_host_manifests()
+    print(
+        f"REPOSITORY_OK: {len(paths)} publishable files passed privacy, Skill, "
+        "parity, version, and host-manifest checks"
+    )
     return 0
 
 

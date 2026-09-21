@@ -94,7 +94,8 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File .\verify.ps1 -SkipRuntime
 ```text
 .agents/skills/bilibili-video-learning/
 ├── SKILL.md
-├── agents/openai.yaml
+├── agents/                 # 各宿主的展示清单（openai / claude / gemini），共享字段由 CI 比对
+├── prompts/                # 笔记骨架（小节标题），带 template-version
 ├── scripts/
 ├── references/
 └── agent-harness/

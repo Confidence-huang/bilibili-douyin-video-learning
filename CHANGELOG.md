@@ -4,6 +4,24 @@ All notable public changes are recorded here.
 
 ## 1.4.2 - 2026-09-14
 
+- Note skeletons moved out of the three backends into `prompts/*.md`, loaded by
+  `scripts/prompt_templates.py` and reported as a version (`template=1`). Only the
+  section headings come from the template — tables, frontmatter, and the timeline
+  stay in code, so the default note is byte-identical to 1.4.1 and can be asserted
+  in tests. A missing `prompts/` directory degrades to the built-in headings and
+  says so, instead of failing a run that already spent minutes on ASR.
+  See `docs/DECISIONS.md` D12.
+- Added `agents/claude.yaml` and `agents/gemini.yaml` alongside the existing
+  `agents/openai.yaml`. Each host reads its own interface manifest, so the shared
+  `display_name` / `short_description` / `brand_color` are now compared by
+  `tools/validate_repository.py::validate_host_manifests()` and CI fails on drift.
+  See D14.
+- `pyproject.toml`: every `>=` floor now carries its reason. One of them is a
+  security floor — `requests>=2.32.4` (CVE-2024-47081 / GHSA-9hjg-9r4m-mvj7
+  `.netrc` credential leak); the rest are compatibility floors. Added an
+  `impersonate` extra so `curl-cffi` can be omitted by users who do not need TLS
+  fingerprint impersonation; ASR stays split into CPU-only `asr` and heavy
+  `cuda-compat`. See D13.
 - `bilibili_deep_archive.py`: metadata-only and deep-archive modes now fetch the view API
   cover image (`附件/bili-media/cover/<bvid>.<ext>`, extension probed from the URL suffix).
 - New notes carry the `vault_status` and `promoted_to` contract fields; added

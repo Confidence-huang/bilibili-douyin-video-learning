@@ -1,0 +1,12 @@
+# Gemini CLI Skill interface.
+#
+# Gemini CLI reads the Agent Skill from `SKILL.md`; this file declares only the
+# host-facing presentation. The colour and short description are duplicated from
+# the OpenAI manifest on purpose — `tools/validate_repository.py` fails CI when
+# the three host manifests disagree, so a rename cannot be applied to just one.
+interface:
+  display_name: "Bilibili & Douyin Video Learning"
+  short_description: "Turn Bilibili and Douyin videos into Chinese study notes"
+  brand_color: "#00a1d6"
+  invocation_name: "bilibili-video-learning"
+  default_prompt: "Use the bilibili-video-learning Skill to turn this Bilibili or Douyin video into structured study notes."
