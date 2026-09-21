@@ -344,6 +344,38 @@ OpenAI 用 `$skill-name` 形式的 `default_prompt`），
 
 ---
 
+## D15. CI action 版本按各自仓库的 tag 策略引用
+
+**决策**：`actions/checkout`、`actions/setup-python` 用浮动主版本 tag（`@v7`），
+`astral-sh/setup-uv` 用完整版本（`@v10.1.0`）。
+
+**背景（真实事故）**：为消掉 GitHub 的 "Node.js 20 is deprecated" 警告，
+把三个 action 都升到了"最新主版本"，其中 `astral-sh/setup-uv@v10` 让 CI 在
+**job setup 阶段**就失败，耗时 8 秒：
+
+```text
+Unable to resolve action `astral-sh/setup-uv@v10`, unable to find version `v10`
+```
+
+**根因**：`setup-uv` 在 **v8.0.0** 的发布说明里明确写了
+"Remove update-major-minor-tags workflow"（发布的标题就叫
+"Immutable releases and secure tags"）。
+也就是说它**主动不再维护浮动主版本 tag**，`v10` 这个 ref 从来没被创建过。
+核对仓库 tag 列表确认：存在 `v10.0.0` / `v10.0.1` / `v10.1.0`，但不存在 `v10`。
+`actions/checkout` 和 `actions/setup-python` 仍然维护浮动主版本 tag，`@v7` 正常解析。
+
+**教训**："最新主版本"不是所有 action 都支持的引用方式。
+在跨仓库统一升级 action 版本之前，必须**先确认该仓库的 tag 策略**——
+有的仓库把浮动 tag 当作供应链风险主动去掉了。
+
+**取舍**：`setup-uv` 钉完整版本意味着补丁升级需要手动改。
+这是刻意的：该 action 既然拒绝浮动 tag，跟着它钉死才是一致的做法。
+
+**重新评估触发条件**：如果 `setup-uv` 恢复发布浮动主版本 tag，
+或者我们决定统一改用 commit SHA 固定（供应链更严的做法）。
+
+---
+
 ## 决策索引
 
 | 编号 | 主题 | 是否可推翻 |
@@ -362,3 +394,4 @@ OpenAI 用 `$skill-name` 形式的 `default_prompt`），
 | D12 | 笔记骨架外置 + 降级不失败 | 可（若需整篇模板） |
 | D13 | 依赖下限必须写明原因 | 可（若改用带注释的锁文件工具） |
 | D14 | 三宿主 interface 清单一致 | 可（若宿主改读 SKILL.md） |
+| D15 | CI action 按各自 tag 策略引用 | 可（若改用 commit SHA） |
