@@ -101,6 +101,13 @@
 - 无音轨：用 ffmpeg 现场生成有/无音轨真实文件双向验证；`extract_audio` 抛 `NoAudioTrackError`；
   通用入口返回 27；退出码互不重复。
 
+### 幻觉门与标注
+
+- 三道门各自触发与不触发：压缩比异常、同一 4 字片段重复 ≥3 次、时长-字数比上下限。
+- 无窗口时长时跳过时长门，其余门仍生效；干净音频零误报。
+- 标注不改写输入文本；`_finalize` 暴露 `suspected_hallucinations` 与对应诊断。
+- 门的开关与阈值进入缓存身份。
+
 ### 金标制作（半自动草稿与核对清单）
 
 - 三种可疑形态（低置信 / 高压缩比 / 与第二配置分歧）必须被标记；正常段落不能进清单。
@@ -169,7 +176,7 @@
 - Linux CLI Python：`${XDG_DATA_HOME:-$HOME/.local/share}/bilibili-video-learning/runtime/bin/python`
 - Windows CLI Python：`<skill-root>\.venv-gpu\Scripts\python.exe`
 - 安装方式：平台安装器调用 `uv pip install --python <CLI-Python> --no-deps -e <skill-root>/agent-harness`
-- 安装入口：`cli-anything-video-learning` 1.9.0
+- 安装入口：`cli-anything-video-learning` 1.10.0
 - 运行约束：`CLI_ANYTHING_FORCE_INSTALLED=1`，测试不得回退到源码模块
 
 执行命令：
@@ -181,18 +188,18 @@ python -m pytest cli_anything/video_learning/tests -q
 最终结果：
 
 ```text
-291 passed, 1 skipped in 6.35s
+301 passed, 1 skipped
 ```
 
 验收覆盖：
 
-- 291 个离线/安装态测试通过，覆盖安全 yt-dlp 参数、严格分 P、字幕解析、Cookie 风险授权、默认省略全文、诊断脱敏、原子写入、来源身份、抖音 SSR/缓存和跨平台运行时入口。
+- 301 个离线/安装态测试通过，覆盖安全 yt-dlp 参数、严格分 P、字幕解析、Cookie 风险授权、默认省略全文、诊断脱敏、原子写入、来源身份、抖音 SSR/缓存和跨平台运行时入口。
 - 1.5.0 新增三组断言：ASR 覆盖率兜底（`test_asr_coverage.py`，含真实 VAD 丢字 fixture 的 196.24–201.84s 空档、
   静音不补转、预算封顶、超长窗口跳过、重叠区间只算一次、补转窗口关闭 VAD、VAD 参数真实下传、关闭校验时保持原样）；
   退出码契约（`test_exit_codes.py`，含抖音 `main()` 的 20/24 码与 JSON 一致性、B站异常分支保留 2 号兜底）；
   CUDA 不可用时的降级（`test_cross_platform.py`，覆盖惰性解码失败、构造期失败、显式 CUDA 不降级、兜底失败时保留根因）。
 - 轻量 CI 环境跳过唯一要求完整 ASR 运行时的 doctor 测试；默认套件不联网、不下载媒体、不读取浏览器 Cookie，也不启动模型推理。
-- 隔离 Linux 完整安装验收通过：依赖一致、CLI 1.9.0、本地合成 MP4 转 16 kHz 单声道 WAV、doctor 找到外置 runtime、yt-dlp、imageio-ffmpeg、faster-whisper 和 CTranslate2。
+- 隔离 Linux 完整安装验收通过：依赖一致、CLI 1.10.0、本地合成 MP4 转 16 kHz 单声道 WAV、doctor 找到外置 runtime、yt-dlp、imageio-ffmpeg、faster-whisper 和 CTranslate2。
 - Skill Creator 校验通过；Skill Lifecycle Manager 的 Static、Runtime、Behavior 三层验证均通过。
 - Windows CUDA 完整安装与真实 GPU ASR 留给 Windows GitHub Actions 和显式授权的真实硬件 smoke；本地 Linux 验收不冒充 Windows GPU 证据。
 - 1.5.0 的真实端到端复核（不进入离线套件，证据留在本轮记录中）：抖音 259.77 秒音频与 B站 30.6 秒视频

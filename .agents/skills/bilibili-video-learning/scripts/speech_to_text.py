@@ -16,6 +16,7 @@ from pathlib import Path                                                        
 from typing import NamedTuple                                                    # 参数对象必须能被测试加载器动态加载（见 D16）
 
 import asr_coverage                                                              # 覆盖率校验与局部补转（不依赖任何模型）
+import asr_hallucination                                                         # 补转结果的幻觉门与标注（D34）
 import asr_refine                                                                # 可疑区间的定向二次解码（D27）
 import asr_lexicon                                                              # 领域词表（见 D26）
 import cuda_runtime                                                              # CUDA 运行时库预加载（见 D23）
@@ -45,6 +46,8 @@ class TranscriptionSettings(NamedTuple):
     profile: str = "balanced"                                                    # fast/balanced/quality，见 apply_profile
     refine_low_confidence: bool = False                                          # 是否对低置信区间做定向二次解码（D27）
     normalize_audio: bool = True                                                 # 抽音频时是否做 highpass+loudnorm 净化（D26）
+    hallucination_gate: bool = True                                              # 补转窗口是否过幻觉门（D34）
+    hallucination_compression_ratio: float = 2.4                                 # 压缩比阈值：更高视为复读/幻觉
 
     def identity(self) -> dict:
         return {"params_version": ASR_PARAMS_VERSION, **self._asdict()}           # 缓存键只认这份字典，不认调用点默认值
@@ -229,6 +232,8 @@ def _run_faster_whisper(
         device_fallback = str(exc)                                                # 写进诊断，避免“以为在用 GPU”
         model, segments, transcription_info = load_model(device, compute_type)     # 同一份音频改用 CPU 再跑一遍
 
+    window_rejections: list = []                                                   # 被幻觉门拒掉的窗口，只记诊断不进正文（D34）
+
     def transcribe_window(clip_path: Path) -> list[dict]:
         window_reading, _ = model.transcribe(                                      # 把丢掉的窗口单独切出来重新解码，上下文完全不同
             str(clip_path),
@@ -239,7 +244,19 @@ def _run_faster_whisper(
             vad_filter=False,                                                      # 丢字原因不是 VAD（见 D16），这里只是换一种解码条件重试
             condition_on_previous_text=False,
         )
-        return _reading_to_segments(window_reading, word_timestamps=settings.word_timestamps)
+        segments = _reading_to_segments(window_reading, word_timestamps=settings.word_timestamps)
+        if settings.hallucination_gate and segments:
+            window_seconds = asr_coverage.audio_duration_seconds(clip_path)        # 用切片真实时长判"说不说得完"
+            verdict = asr_hallucination.looks_hallucinated(
+                segments, window_seconds,
+                compression_ratio=settings.hallucination_compression_ratio)
+            if verdict.suspicious:                                                 # 宁可拒绝，也不把编出来的话并进正文
+                window_rejections.append({"clip": clip_path.name, "window_seconds": window_seconds,
+                                          "reasons": verdict.reasons,
+                                          "text": "".join(item["content"] for item in segments)[:80]})
+                log(f"[{log_prefix}] rejected a retry window: {verdict.reasons}")
+                return []
+        return segments
 
     result = {
         "engine": "faster-whisper",                                               # 调用方和最终笔记可明确来源
@@ -258,7 +275,10 @@ def _run_faster_whisper(
         "language_probability": getattr(transcription_info, "language_probability", None),  # 语言置信度
         "segments": segments,                                                      # 标准分段正文
         "diagnostics": [_new_asr_diagnostic("faster-whisper", True, "ok", device=device, compute_type=compute_type,
-                                            device_fallback=device_fallback)],
+                                            device_fallback=device_fallback)]
+        + ([{"step": "asr_hallucination_gate", "ok": False,
+             "message": f"{len(window_rejections)} retry window(s) rejected as hallucination",
+             "windows": window_rejections}] if window_rejections else []),
     }
     return result, transcribe_window
 
@@ -327,7 +347,8 @@ def _run_openai_whisper(
 
 
 # --- 把结果补上覆盖率字段与覆盖后的全文 ---
-def _finalize(result: dict, guard: dict, *, low_confidence_threshold: float) -> dict:
+def _finalize(result: dict, guard: dict, *, low_confidence_threshold: float,
+              compression_ratio_threshold: float = 2.4) -> dict:
     segments = guard["segments"]                                                   # 覆盖率校验后的最终分段
     report = guard["report"]                                                       # 判断依据原样交给调用方
     result["segments"] = segments                                                  # 覆盖掉第一遍可能缺字的分段
@@ -339,6 +360,16 @@ def _finalize(result: dict, guard: dict, *, low_confidence_threshold: float) -> 
     result["diagnostics"].append(_new_coverage_diagnostic(report))                  # 覆盖率结论写进统一诊断
     low_confidence = _low_confidence_spans(segments, low_confidence_threshold)      # 低置信区间交给人工复核
     result["low_confidence_spans"] = low_confidence
+    suspected = asr_hallucination.flag_segments(segments, compression_ratio=compression_ratio_threshold)
+    result["suspected_hallucinations"] = suspected                                # 只标注、不改写（D34）
+    if suspected:
+        result["diagnostics"].append({
+            "step": "asr_hallucination_marks",
+            "ok": False,
+            "message": f"{len(suspected)} segment(s) look like repetition/hallucination",
+            "threshold": compression_ratio_threshold,
+            "spans": suspected,
+        })
     if low_confidence:
         result["diagnostics"].append({
             "step": "asr_confidence",
@@ -444,7 +475,8 @@ def _finish(result: dict, audio: Path, guard: dict, engine_runner, settings: "Tr
         log(f"[{log_prefix}] Refining suspicious spans (targeted re-decode)...")
         guard, refine_diagnostics = _refine_result(audio, guard, engine_runner, settings)
 
-    finalized = _finalize(result, guard, low_confidence_threshold=settings.low_confidence_logprob)
+    finalized = _finalize(result, guard, low_confidence_threshold=settings.low_confidence_logprob,
+                          compression_ratio_threshold=settings.hallucination_compression_ratio)
     finalized["diagnostics"].extend(refine_diagnostics)                            # 重解的接受/拒绝理由都要留痕
     if guard.get("refine_report") is not None:
         finalized["refine_report"] = guard["refine_report"]                        # 逐段替换理由，供人工复核

@@ -2,6 +2,27 @@
 
 All notable public changes are recorded here.
 
+## 1.10.0 - 2026-09-29
+
+- **Retry windows now pass a hallucination gate.** The coverage guard cuts out suspicious gaps
+  and re-decodes them with both silence thresholds disabled (D16), which is the only place in
+  the pipeline that can invent text - and until now its output was merged into the transcript
+  unchecked. A window is now accepted only if its compression ratio is sane, it does not repeat
+  the same 4-character fragment three or more times, and its characters-per-second is plausible
+  for Chinese speech (roughly 4-6/s; above 8 or below 0.5 is rejected). Rejected windows are
+  recorded in an `asr_hallucination_gate` diagnostic and the transcript keeps the first pass.
+- **Suspected hallucinations are marked, never rewritten.** `suspected_hallucinations` lists
+  segments whose compression ratio suggests repetition or invention, with an
+  `asr_hallucination_marks` diagnostic. The text itself is never altered by the tool - a human
+  decides. Both the gate switch and its threshold enter the cache identity.
+- **CI can finally run the media tests.** Neither job installed ffmpeg, so the cases that
+  generate real media (missing-audio detection, audio extraction) were silently skipped and had
+  no continuous regression protection. `imageio-ffmpeg` is now a CI test dependency, which is
+  cross-platform and needs no sudo. See D34.
+- Verified on a real 30.63s Bilibili video (`small`): 14 segments, coverage 0.8501, zero
+  hallucination marks - clean audio produces no false positives - with the new field present in
+  the output. Tests: **301 passing** offline cases.
+
 ## 1.9.0 - 2026-09-29
 
 - **Semi-automatic gold sets.** `scripts/eval_gold_draft.py` turns an ASR draft into a gold
