@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import shutil
+import re
+import subprocess
 from pathlib import Path
 
 
@@ -55,3 +57,21 @@ def build_audio_filter_chain(*, normalize: bool = True, denoise: bool = False, h
     if normalize:
         filters.append(f"loudnorm=I={ASR_LOUDNESS_TARGET}:TP={ASR_TRUE_PEAK}:LRA={ASR_LOUDNESS_RANGE}")
     return ",".join(filters)
+
+
+# --- 音轨检测：抖音图文作品没有音轨，重试与换下载方式都没有意义（D28） ---
+AUDIO_STREAM_PATTERN = re.compile(r"Stream #\d+:\d+.*?: Audio:", re.IGNORECASE)
+
+
+def ffmpeg_input_report(path: str | Path, timeout: int = 30) -> str:
+    """返回 ffmpeg -i 的诊断文本（无输出文件时 ffmpeg 以非零退出，stderr 里仍含流信息）。"""
+    completed = subprocess.run([find_ffmpeg(), "-hide_banner", "-i", str(path)],
+                               capture_output=True, text=True, timeout=timeout)
+    return f"{completed.stdout}\n{completed.stderr}"
+
+
+def has_audio_stream(path: str | Path, timeout: int = 30) -> bool:
+    try:
+        return bool(AUDIO_STREAM_PATTERN.search(ffmpeg_input_report(path, timeout=timeout)))
+    except Exception:
+        return False                                            # 探测失败按"没有音轨"处理，由上层给明确错误

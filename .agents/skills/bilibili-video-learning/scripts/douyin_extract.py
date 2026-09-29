@@ -37,6 +37,7 @@ from speech_to_text import (                                                    
 )
 from runtime_output import (                                                      # 进度和结构化错误共用脱敏边界。
     EXIT_GENERIC_FAILURE,
+    NoAudioTrackError,
     TranscriptionFailedError,
     classify_failure,
     log,
@@ -448,6 +449,10 @@ def choose_downloaded_video(
 # --- Step 3: Extract audio ---
 
 def extract_audio(video_path: str, wav_path: str, *, normalize: bool = True) -> str:
+    if not media_tools.has_audio_stream(video_path):                               # 图文作品没有音轨，越早失败越省时间（D28）
+        raise NoAudioTrackError(
+            "这个作品没有音轨（图文/纯图片作品）：重试或换下载方式都不会有逐字稿，请改走图片 OCR（hard_subtitle 的图片路径）。"
+        )
     ffmpeg = _find_ffmpeg()
     filter_chain = media_tools.build_audio_filter_chain(normalize=normalize)   # 抖音普遍叠 BGM，先做基础净化（D26）
     cmd = [
@@ -854,6 +859,7 @@ def main(argv: list = None) -> int:
             exc,
             (douyin_ssr.DouyinSSRDownloadError, DouyinDownloadUnavailableError),
             platform_error_types=(douyin_ssr.DouyinPlatformVerificationRequired,),  # 风控降级页 → 26，与 20 区分开
+            no_audio_error_types=(NoAudioTrackError,),                                # 图文作品 → 27，改走图片 OCR
 
         )
         error_result["exit_code"] = exit_code                                    # 结构化失败里带上同一份判断，便于 Agent 决策

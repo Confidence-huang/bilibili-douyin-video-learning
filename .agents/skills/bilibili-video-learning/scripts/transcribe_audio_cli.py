@@ -12,6 +12,8 @@ from pathlib import Path  # 统一处理 Windows 路径与存在性检查。
 
 from runtime_output import log  # 进度写 stderr，保证 stdout 的 JSON 不被污染。
 import asr_lexicon  # 领域词表（D26）
+import media_tools  # 音轨检测（D28）
+from runtime_output import EXIT_NO_AUDIO_TRACK, EXIT_SUCCESS
 import speech_to_text  # 档位定义
 from speech_to_text import TranscriptionSettings, transcribe_audio_file  # 复用 faster-whisper 优先 + openai-whisper 兜底的同一入口。
 
@@ -38,6 +40,11 @@ def main() -> int:
     if not audio.is_file():
         print(json.dumps({"error": f"audio file not found: {audio}"}, ensure_ascii=False), flush=True)
         return 1
+
+    if not media_tools.has_audio_stream(audio):                        # 图文/纯图片文件没有音轨，明确失败而不是产出空结果
+        print(json.dumps({"error": "input has no audio track (image post or silent clip): use the image OCR path"},
+                         ensure_ascii=False), flush=True)
+        return EXIT_NO_AUDIO_TRACK
 
     device = None if args.device in (None, "auto") else args.device   # auto 交还给 _choose_ctranslate2_device 探测。
     settings = TranscriptionSettings(

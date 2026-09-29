@@ -20,9 +20,11 @@ from cli_anything.video_learning.utils.exit_codes import (  # noqa: E402 退出�
     EXIT_NETWORK_TIMEOUT,
     EXIT_RATIO_UNAVAILABLE,
     EXIT_SHARE_PAGE_UNAVAILABLE,
+    EXIT_NO_AUDIO_TRACK,
     EXIT_SOURCES_DISAGREE,
     EXIT_SUCCESS,
     EXIT_TRANSCRIPTION_FAILED,
+    NoAudioTrackError,
     TranscriptionFailedError,
     classify_failure,
 )
