@@ -26,6 +26,42 @@ CREDENTIAL_PATTERN = re.compile(
     r"BEGIN (?:RSA|OPENSSH|EC|DSA) PRIVATE KEY|AKIA[0-9A-Z]{16}|gh[pousr]_[A-Za-z0-9_]{20,}",
 )
 
+# --- 词表/裁决表：每条都必须带证据注释（把"要加词请附实测"从注释变成规则，见 D39）---
+EVIDENCE_FILES = ("references/asr-lexicon.txt", "references/conflict-preferences.txt")
+
+
+def report_unevidenced_reference_entries() -> list[str]:
+    offenders = []
+    for relative in EVIDENCE_FILES:
+        path = SKILL_ROOT / relative
+        if not path.exists():
+            continue
+        for number, line in enumerate(path.read_text(encoding="utf-8", errors="replace").splitlines(), start=1):
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#"):
+                continue
+            if "#" not in stripped:                                               # 没有证据注释 → 记下位置
+                offenders.append(f"{relative}:{number}")
+    return offenders
+
+
+# --- 提示词模板必须有 template-version，且同名模板版本不得互相矛盾（见 D39）---
+def report_prompt_template_versions() -> list[str]:
+    problems = []
+    seen: dict[str, str] = {}
+    for path in sorted((SKILL_ROOT / "prompts").glob("*.md")):
+        versions = re.findall(r"template-version:\s*(\S+)", path.read_text(encoding="utf-8", errors="replace"))
+        if not versions:
+            problems.append(f"{path.name}:missing-template-version")
+            continue
+        if len(set(versions)) > 1:
+            problems.append(f"{path.name}:contradictory-versions")
+        seen[path.name] = versions[0]
+    return problems
+
+
+
+
 
 # --- Read the exact Git publication boundary ---
 def publishable_paths() -> list[Path]:
@@ -183,6 +219,10 @@ def main() -> int:
     validate_cli_skill_parity()
     validate_version_parity()
     validate_host_manifests()
+    for label, offender_list in (("unevidenced reference entries", report_unevidenced_reference_entries()),
+                                 ("prompt template version problems", report_prompt_template_versions())):
+        if offender_list:
+            print(f"NOTE: {label}: " + ", ".join(offender_list))                  # 非致命：只提示
     orphans = report_unreferenced_scripts()                                       # 非致命：只提示，不让 CI 变红
     if orphans:
         print("NOTE: scripts not referenced by any entry point (consider wiring or removing): "
@@ -224,4 +264,4 @@ def report_unreferenced_scripts() -> list[str]:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())                                                       # Nonzero exceptions fail CI visibly.
+    raise SystemExit(main())

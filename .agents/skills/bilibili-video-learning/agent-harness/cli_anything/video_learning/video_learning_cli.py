@@ -206,12 +206,17 @@ def doctor_group() -> None:
 def doctor_status_command() -> None:
     """Report machine-readable backend health and fail when a hard dependency is missing."""
     payload = inspect_runtime()
+    from cli_anything.video_learning.core import skill_assets                          # 资产盘点（D39）
+    payload["skill_assets"] = skill_assets.inspect_skill_assets(payload["skill_root"])
     human_lines = [
         f"Skill: {payload['skill_root']}",
         f"Python: {payload['runtime_python']}",
         f"yt-dlp: {payload['tools']['yt-dlp']['path']}",
         f"ffmpeg: {payload['tools']['ffmpeg']['path']}",
         f"Obsidian: {payload['obsidian_vault']}",
+        f"Lexicon: {payload['skill_assets']['lexicon_entries']} entries; "
+        f"conflict preferences: {payload['skill_assets']['conflict_preference_entries']}; "
+        f"chunking default: {payload['skill_assets']['chunk_length_default']}",
         f"Status: {'OK' if payload['ok'] else 'FAILED'}",
     ]
     emit_result(payload, "\n".join(human_lines))

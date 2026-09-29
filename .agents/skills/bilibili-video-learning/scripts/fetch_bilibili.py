@@ -962,6 +962,13 @@ def to_markdown(data, *, include_transcript=False):
             lines.append(f"> {c.get('text', '')}")
             lines.append("")
 
+    try:                                                                         # 可选增强：加载不到也不能让笔记渲染失败（D39）
+        import review_section
+        review = review_section.render_review_section(result)                    # 有校验信息才加小节
+    except Exception:
+        review = ""
+    if review:
+        lines.append(review)
     return "\n".join(lines)
 
 
