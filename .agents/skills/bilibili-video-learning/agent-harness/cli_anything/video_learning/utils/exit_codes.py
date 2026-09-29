@@ -15,6 +15,7 @@ EXIT_NETWORK_TIMEOUT = 22            # 网络超时或连接中断：换网络�
 EXIT_RATIO_UNAVAILABLE = 23          # 请求的画质在所有公开档位里都不可用：降档重试。
 EXIT_TRANSCRIPTION_FAILED = 24       # 取流成功但本地 ASR 失败：检查运行时/模型/显存。
 EXIT_SOURCES_DISAGREE = 25           # 交叉校验发现两份来源不一致：需要人工判断以哪一份为准。
+EXIT_PLATFORM_VERIFICATION_REQUIRED = 26  # 平台风控/验证页：同 IP 换下载方式无效，需等待、换出口网络或授权 Cookie。
 
 RATIO_FAILURE_MARKERS = ("unsupported ratio", "no public play ratio worked")  # 画质失败目前只有文本可判。
 
@@ -25,9 +26,12 @@ class TranscriptionFailedError(RuntimeError):
 
 
 # --- 判断一个异常属于哪一档退出码 ---
-def classify_failure(exc: BaseException, ssr_error_types: tuple[type, ...] = ()) -> int:
+def classify_failure(exc: BaseException, ssr_error_types: tuple[type, ...] = (),
+                     platform_error_types: tuple[type, ...] = ()) -> int:
     if isinstance(exc, TranscriptionFailedError):                                  # 本地 ASR 失败：重试取流没有意义
         return EXIT_TRANSCRIPTION_FAILED
+    if platform_error_types and isinstance(exc, platform_error_types):              # 风控/验证：比"取流不可用"更具体，先判它
+        return EXIT_PLATFORM_VERIFICATION_REQUIRED
     if ssr_error_types and isinstance(exc, ssr_error_types):                        # 分享页取流失败：可以重试或换下载方式
         return EXIT_SHARE_PAGE_UNAVAILABLE
     if isinstance(exc, (TimeoutError, ConnectionError)):                            # 标准库网络异常

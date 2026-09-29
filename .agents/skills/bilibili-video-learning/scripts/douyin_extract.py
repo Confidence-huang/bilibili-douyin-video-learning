@@ -384,6 +384,13 @@ def download_video_with_ytdlp(
 
 
 # --- Choose SSR first or force a requested download method ---
+# --- 两条路径都失败时，按"是否被平台风控"选择异常类型（决定退出码 20 还是 26） ---
+def unavailable_error_class(platform_limited: bool) -> type:
+    if platform_limited:                                          # 风控：同 IP 换下载方式无效，必须让 Agent 看出来。
+        return douyin_ssr.DouyinPlatformVerificationRequired
+    return DouyinDownloadUnavailableError
+
+
 def choose_downloaded_video(
     url: str,
     work_dir: str,
@@ -395,6 +402,7 @@ def choose_downloaded_video(
     socket_timeout: int = 60,
 ) -> dict:
     diagnostics = []
+    ssr_platform_limited = False                                 # SSR 撞上风控时必须把 26 传出去，不能被笼统的 20 吞掉（D25）。
 
     if download_method in ("auto", "ssr"):
         try:
@@ -402,10 +410,11 @@ def choose_downloaded_video(
             ssr_result["diagnostics"] = diagnostics + ssr_result.get("diagnostics", [])
             return ssr_result
         except Exception as exc:
+            ssr_platform_limited = isinstance(exc, douyin_ssr.DouyinPlatformVerificationRequired)
             diagnostics.extend(getattr(exc, "diagnostics", []))
             add_diagnostic(diagnostics, "ssr_pipeline", False, f"SSR public download failed: {exc}")
             if download_method == "ssr":
-                raise DouyinDownloadUnavailableError(json.dumps({
+                raise unavailable_error_class(ssr_platform_limited)(json.dumps({
                     "error": f"SSR public download failed before transcription: {exc}",
                     "download_method": download_method,
                     "diagnostics": diagnostics,
@@ -424,7 +433,7 @@ def choose_downloaded_video(
             return ytdlp_result
         except Exception as exc:
             add_diagnostic(diagnostics, "ytdlp_pipeline", False, f"yt-dlp fallback failed: {exc}")
-            raise DouyinDownloadUnavailableError(json.dumps({
+            raise unavailable_error_class(ssr_platform_limited)(json.dumps({
                 "error": "Douyin download failed before transcription",
                 "download_method": download_method,
                 "diagnostics": diagnostics,
@@ -830,6 +839,8 @@ def main(argv: list = None) -> int:
         exit_code = classify_failure(                                            # 取流/网络/转写分别给不同退出码
             exc,
             (douyin_ssr.DouyinSSRDownloadError, DouyinDownloadUnavailableError),
+            platform_error_types=(douyin_ssr.DouyinPlatformVerificationRequired,),  # 风控降级页 → 26，与 20 区分开
+
         )
         error_result["exit_code"] = exit_code                                    # 结构化失败里带上同一份判断，便于 Agent 决策
         if args.json:
