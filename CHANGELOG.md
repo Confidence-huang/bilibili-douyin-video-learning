@@ -2,6 +2,26 @@
 
 All notable public changes are recorded here.
 
+## 1.13.0 - 2026-09-29
+
+- **The standalone CLIs share one exit-code contract.** `scripts/exit_contract.py` lets
+  `douyin_ssr.py` (and any other script run directly) return the same codes as the harness -
+  timeout 22, platform risk control 26, missing audio 27 and so on - instead of a blanket 1. It
+  imports the canonical implementation when the harness is installed and falls back to a local
+  mirror otherwise, because `python scripts/douyin_ssr.py` must work on a machine that only has
+  the sources. A test locks both the values and the *classification results* against the
+  canonical implementation, since matching numbers with differing semantics would be worse than
+  no mirror at all. See D37.
+- **A pre-existing duplicate, left alone on purpose.** `fetch_bilibili.py` already carried its own
+  exit-code constants and classifier. Changing it carried more risk than value, so instead a test
+  now pins its constants to the mirror: drift will fail CI rather than pass unnoticed.
+- **Scripts with no in-repo entry point are declared, not nagged.** The validator's report gained
+  an `INTENTIONALLY_LIBRARY_ONLY` list (`export_anki.py`, `vault_ingest.py`,
+  `vault_synthesize.py`, `bilibili_deep_archive.py`) - the first three are libraries for other
+  hosts, the last is invoked by the plugin, which CI cannot see - and `SKILL.md` now states both
+  facts so "intentionally kept" is auditable. The report is empty again.
+- Tests: **317 passing** offline cases.
+
 ## 1.12.0 - 2026-09-29
 
 - **The domain lexicon now only holds entries with a real error behind them.** The ten

@@ -1132,6 +1132,42 @@ CDP 会话 + 页面内 `fetch`），并通过 `douyin_extract --download-method 
 
 ---
 
+## D37. 退出码契约的镜像模块；未引用脚本改为显式白名单
+
+**决策**：新增 `scripts/exit_contract.py`，让 `scripts/` 下的独立 CLI 与 harness 共用同一套退出码，
+并把它做成**镜像 + 测试锁定**的结构；同时把"没有仓库内入口的脚本"从"长期挂警告"改为**显式声明**。
+
+**为什么需要镜像，而不是直接 import**：契约的规范定义在
+`agent-harness/cli_anything/video_learning/utils/exit_codes.py`，但独立脚本常被
+`python scripts/xxx.py` 直接调用，此时 harness 未必装在解释器里——硬依赖会让脚本在
+"只装了源码"的机器上直接崩。于是镜像模块**先尝试导入规范实现**（装了就用规范的），
+**缺失时退回本地镜像**，并且显式暴露 `mirror_classify_failure` 供测试对比。
+
+**测试锁定两层一致性**（只对齐数值不够，语义漂移同样有害）：
+- `MIRROR_VALUES` 与规范常量**逐项相等**；
+- `classify_failure` 与 `mirror_classify_failure` 在文档化用例上**分类结果相同**
+  （超时→22、平台风控→26、无音轨→27、其它→1）。实测两者完全一致。
+
+**顺带发现的既有重复**：`fetch_bilibili.py` 早已自带一份 `EXIT_*` 常量与分类函数。
+**不改它**——改动的风险高于收益；改为**用测试锁定它与镜像数值一致**，漂移会立刻变红。
+
+**未引用脚本改为白名单**：`tools/validate_repository.py` 的报告新增
+`INTENTIONALLY_LIBRARY_ONLY`（`export_anki.py`、`vault_ingest.py`、`vault_synthesize.py`、
+`bilibili_deep_archive.py`）。理由分两类：前三者**有意**只作为库给别的宿主调用，
+`bilibili_deep_archive.py` 由**插件**调用、CI 看不到外部调用方。
+同时在 `SKILL.md` 里显式写出深度归档脚本与库脚本的存在与定位——**让"有意保留"变成可审计的事实，
+而不是无声的游离文件**。改动后报告项清零。
+
+**验证方式**：`tests/test_exit_contract.py` 覆盖镜像数值一致、镜像与规范分类一致、
+`fetch_bilibili` 常量与镜像一致、平台专属异常类型优先、独立 CLI 真的返回映射后的码
+（并校验 JSON 里的 `exit_code` 与返回码一致）。真实调用：
+`douyin_ssr.py` 在超时场景返回 **22** 且 JSON 带同名 `exit_code`。
+
+**重新评估触发条件**：如果 harness 变成独立可分发的包且始终可用，镜像可退化为一次性迁移脚本；
+如果出现更多"有意保留为库"的脚本，白名单应附上每条的理由（当前以注释形式给出）。
+
+---
+
 ## 决策索引
 
 | 编号 | 主题 | 是否可推翻 |
@@ -1172,3 +1208,4 @@ CDP 会话 + 页面内 `fetch`），并通过 `douyin_extract --download-method 
 | D34 | 补转结果过幻觉门；可疑只标注 | 可（阈值需按素材重标定） |
 | D35 | 融合第三判据（裁决表）+ 复核清单排序 | 可（若引入第三来源） |
 | D36 | 词表收敛/诊断键/模型指纹/未引用报告 | 可（词表扩张需附评测证据） |
+| D37 | 退出码镜像模块 + 未引用脚本白名单 | 可（harness 可分发时退化为迁移脚本） |

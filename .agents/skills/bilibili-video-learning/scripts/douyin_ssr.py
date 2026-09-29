@@ -15,6 +15,7 @@ Example:
     python douyin_ssr.py "https://v.douyin.com/example/" --ratio 720p -o out.mp4
 """
 import argparse                         # Parses the standalone diagnostic CLI.
+import exit_contract                    # 统一退出码契约（镜像模块，见 D37）
 import html                             # Decodes escaped URLs from share text and SSR HTML.
 import json                             # Reads Douyin JSON blobs embedded in SSR pages.
 import os                               # Creates parent folders and checks downloaded size.
@@ -620,11 +621,13 @@ def main(argv: Optional[List[str]] = None) -> int:
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return 0
     except Exception as exc:
+        exit_code = exit_contract.classify_failure(exc, (DouyinSSRDownloadError,))   # 与 harness 同一套退出码（D37）
         print(json.dumps({
             "error": str(exc),
+            "exit_code": exit_code,
             "diagnostics": getattr(exc, "diagnostics", []),
         }, ensure_ascii=False, indent=2))                          # stdout 保持一个 JSON，供 harness 解析失败原因。
-        return 1
+        return exit_code
 
 
 if __name__ == "__main__":
