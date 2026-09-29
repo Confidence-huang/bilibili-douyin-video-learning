@@ -176,3 +176,22 @@ def test_shipped_gold_set_is_text_only():
         assert payload["reference"]["text"].strip()
         assert payload["media"]["url"].startswith("http")
         assert not list(path.parent.glob("*.wav")) and not list(path.parent.glob("*.mp4"))
+
+
+# --- 数字写法差异不该算成识别错误（D33）---
+def test_numeral_normalization_makes_spellings_equivalent():
+    assert eval_asr.normalize_numerals("六") == "6"
+    assert eval_asr.normalize_numerals("一百") == "100"
+    assert eval_asr.normalize_numerals("四十五岁") == "45岁"
+    assert eval_asr.normalize_numerals("两") == "2"
+    assert eval_asr.normalize_text("六年前") == eval_asr.normalize_text("6年前")
+
+
+# --- 严格口径（--keep-numerals）下它们仍是差异，两个口径都要能算 ---
+def test_strict_mode_keeps_numeral_differences():
+    hyphen = eval_asr.character_error_rate(eval_asr.normalize_text("一百斤"), eval_asr.normalize_text("100斤"))
+    strict = eval_asr.character_error_rate(eval_asr.normalize_text("一百斤", numerals=False),
+                                          eval_asr.normalize_text("100斤", numerals=False))
+
+    assert hyphen["errors"] == 0
+    assert strict["errors"] > 0

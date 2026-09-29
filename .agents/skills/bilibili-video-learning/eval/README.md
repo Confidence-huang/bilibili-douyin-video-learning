@@ -37,6 +37,32 @@
 > ⚠️ 方向陷阱：`difflib` 里 `a=假设, b=参考`，所以 `insert` 是**漏字**、`delete` 是**多字**。
 > `edit_operations()` 已显式翻译一次，并在文档里写明，避免再次搞反（曾经把"漏掉的金标文字"报成"幻觉"）。
 
+## 制作新的金标（半自动）
+
+```bash
+# 1) 用两个配置各转写一次（初稿用最好的配置，第二配置只用于分歧清单）
+python scripts/transcribe_bilibili.py <BV号> --model large --json > /tmp/primary.json
+python scripts/transcribe_bilibili.py <BV号> --model small --json > /tmp/secondary.json
+
+# 2) 生成草稿 + 核对清单
+python scripts/eval_gold_draft.py --primary /tmp/primary.json --secondary /tmp/secondary.json \
+  --id bilibili-<BV号> --platform bilibili --media-url "<链接>" --duration <秒> \
+  -o eval/gold/bilibili-<BV号>.draft.json --worksheet eval/worksheets/bilibili-<BV号>.md
+
+# 3) 只核对清单里被标记的行（低置信 / 复读嫌疑 / 实质分歧），其余抽查
+# 4) 改完把 reference.kind 从 semi-automatic-draft 改成 human-verified，并删掉 review 块
+```
+
+清单会按 `复读嫌疑 > 低置信 > 实质分歧 > 非实质分歧` 排序，并截断到段落数的 30%（至少 8 条），
+同时报告可疑总数——否则"分歧多"的素材会把所有段落都标出来，等于没有优先级（D33）。
+
+## 口径说明（不影响正确性的差异不计入 CER）
+
+- **数字写法**：中文数字与阿拉伯数字归一（`六`≡`6`、`一百`≡`100`、`四十五岁`≡`45岁`）。
+  抖音金标上这让 CER 从 0.0214 降到 0.0187（41→36 错）——差的正是写法差异，不是识别错误。
+  要严格口径加 `--keep-numerals`。
+- **繁简**：默认做 t2s 归一（缺 OpenCC 时降级）。
+
 ## 用法
 
 ```bash
