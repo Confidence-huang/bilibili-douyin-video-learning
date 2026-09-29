@@ -17,7 +17,7 @@ All notable public changes are recorded here.
   excludes locally bound names (lambda arguments, comprehension/for/with targets, assignment
   targets). Four false positives - builtins, pure calls, `str`, lambda parameters - is the lesson:
   a static guard has to do scope analysis, or it spends the trust people place in it.
-- Tests: **441 passing** offline cases.
+- Tests: **439 passing** offline cases.
 
 ## 1.24.0 - 2026-09-29
 
