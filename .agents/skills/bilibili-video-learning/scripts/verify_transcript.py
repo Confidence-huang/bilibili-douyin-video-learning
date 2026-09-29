@@ -211,8 +211,64 @@ def _significant_text(text: str) -> str:
 
 
 # --- 把两份来源合成一份带出处的逐字稿（主源更权威，次源只负责补空档） ---
+CONFLICT_PREFERENCES_PATH = Path(__file__).resolve().parent.parent / "references" / "conflict-preferences.txt"
+PREFERENCE_PATTERN = re.compile(r"^\s*([^#\s→]+)\s*→\s*([^#\s]+)")
+
+
+# --- 读取冲突裁决表：每行"错误写法→正确写法"，# 起注释 ---
+def load_conflict_preferences(paths: Optional[List[str | Path]] = None) -> Dict[str, str]:
+    resolved = [Path(item) for item in (paths or [CONFLICT_PREFERENCES_PATH])]
+    table: Dict[str, str] = {}
+    for candidate in resolved:
+        try:
+            text = candidate.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue                                                   # 没有裁决表也要能跑（回到"信主源"的历史行为）
+        for line in text.splitlines():
+            match = PREFERENCE_PATTERN.match(line)
+            if match and match.group(1) != match.group(2):
+                table[match.group(1)] = match.group(2)
+    return table
+
+
+# --- 把裁决表拆成"逐位字符混淆"：difflib 的 opcode 是字符级，等长表项才能位对位比较 ---
+def character_confusions(table: Dict[str, str]) -> Dict[str, str]:
+    pairs: Dict[str, str] = {}
+    for wrong, right in table.items():
+        if len(wrong) == len(right):
+            for left, correct in zip(wrong, right):
+                if left != correct:
+                    pairs[left] = correct
+    return pairs
+
+
+# --- 裁决一个冲突片段该用哪一侧：按位比较，命中已知混淆就采信另一侧 ---
+def prefer_side(primary_span: str, secondary_span: str, table: Dict[str, str]) -> tuple[str, Optional[str], Optional[str]]:
+    confusions = character_confusions(table)
+    if not confusions or len(primary_span) != len(secondary_span):
+        # 长度不同（整词替换）时退回整串包含判断：只有一侧含已知错写法才改判
+        primary_wrong = [w for w, r in table.items() if w in primary_span and r not in primary_span]
+        secondary_wrong = [w for w, r in table.items() if w in secondary_span and r not in secondary_span]
+        if primary_wrong and not secondary_wrong:
+            return "secondary", primary_wrong[0], None
+        return "primary", (secondary_wrong[0] if secondary_wrong else None), None
+
+    primary_wrong = secondary_wrong = None
+    for left, right in zip(primary_span, secondary_span):             # 位对位：同一位上两侧各写了什么
+        if confusions.get(left) == right:                             # 主源写了已知错字、次源写了正确字
+            primary_wrong = primary_wrong or left
+        elif confusions.get(right) == left:                           # 反之：次源写错、主源正确
+            secondary_wrong = secondary_wrong or right
+    if primary_wrong and not secondary_wrong:
+        return "secondary", primary_wrong, None
+    if secondary_wrong and not primary_wrong:
+        return "primary", None, secondary_wrong
+    return "primary", primary_wrong, secondary_wrong
+
+
 def fuse_transcripts(primary: list[dict], secondary: list[dict], *,
-                     primary_source: str = "subtitle", secondary_source: str = "asr") -> dict:
+                     primary_source: str = "subtitle", secondary_source: str = "asr",
+                     preferences: Optional[Dict[str, str]] = None) -> dict:
     primary = normalize_segments(primary)                             # 公开接口自己过适配层：两种历史形状都能直接传
     secondary = normalize_segments(secondary)
     sources = {"primary": primary_source, "secondary": secondary_source}
@@ -222,6 +278,8 @@ def fuse_transcripts(primary: list[dict], secondary: list[dict], *,
     secondary_text = "".join(item[0] for item in secondary_stream)
     matcher = difflib.SequenceMatcher(None, primary_text, secondary_text, autojunk=False)
 
+    active_preferences = load_conflict_preferences() if preferences is None else preferences
+    preference_hits: list[dict] = []
     spans: list[dict] = []
     pieces: list[dict] = []
     for tag, i1, i2, j1, j2 in matcher.get_opcodes():
@@ -247,14 +305,29 @@ def fuse_transcripts(primary: list[dict], secondary: list[dict], *,
         })
         if tag == "insert":
             pieces.extend(_copy_segments(secondary, secondary_stream, j1, j2, covered_by=("secondary",)))
-        else:
-            # delete：只有主源有，保留；replace：主源文本进稿，同时记录次源在这段里的实际字符
-            pieces.extend(_copy_segments(primary, primary_stream, i1, i2, covered_by=("primary",)))
-            if primary_span and secondary_span:
-                # 次源在同一段给出了别的写法：按主源片段切分，逐段记录，冲突才不会被静默丢掉
+        elif primary_span and secondary_span:
+            chosen, primary_wrong, secondary_wrong = prefer_side(primary_span, secondary_span, active_preferences)
+            conflict_chars = _conflict_size(primary_span, secondary_span)
+            if chosen == "secondary":
+                # 裁决表判定主源是已知错写法（如 OCR 的"赠"）：采信次源，并把主源写法留作对照
+                preference_hits.append({"primary_text": primary_span, "secondary_text": secondary_span,
+                                        "wrong_form": primary_wrong, "action": "chose_secondary"})
+                for piece in _copy_segments(secondary, secondary_stream, j1, j2, covered_by=("secondary",)):
+                    piece["alternative_text"] = primary_span
+                    piece["chosen_by"] = "preference_table"
+                    piece["conflict_chars"] = conflict_chars
+                    pieces.append(piece)
+            else:
+                if secondary_wrong:
+                    preference_hits.append({"primary_text": primary_span, "secondary_text": secondary_span,
+                                            "wrong_form": secondary_wrong, "action": "kept_primary"})
+                pieces.extend(_copy_segments(primary, primary_stream, i1, i2, covered_by=("primary",)))
                 for piece in _copy_segments(primary, primary_stream, i1, i2, covered_by=("secondary",)):
                     piece["alternative_text"] = _secondary_window_text(secondary, secondary_stream, j1, j2)
+                    piece["conflict_chars"] = conflict_chars
                     pieces.append(piece)
+        else:
+            pieces.extend(_copy_segments(primary, primary_stream, i1, i2, covered_by=("primary",)))
 
     fused_segments = _combine_fused_segments(pieces, sources=sources)
     fused_segments = _ensure_source_coverage(fused_segments, secondary, sources)  # 次源段落绝不因对齐歧义消失
@@ -267,6 +340,7 @@ def fuse_transcripts(primary: list[dict], secondary: list[dict], *,
         secondary_source: sum(1 for item in fused_segments if item["provenance"] == secondary_source),
         "mixed": sum(1 for item in fused_segments if item["provenance"] == "mixed"),
     }
+    review_top, substantive_count, minor_count = _rank_review_items(spans)
     return {
         "primary": _describe(primary, primary_text),                  # 与 compare_timelines 保持同一份来源摘要结构
         "secondary": _describe(secondary, secondary_text),
@@ -276,6 +350,12 @@ def fuse_transcripts(primary: list[dict], secondary: list[dict], *,
         "segment_count": len(fused_segments),
         "provenance_counts": provenance_counts,
         "needs_review_count": needs_review_count,
+        "needs_review_total": needs_review_count,
+        # 复核清单按"差异大小"排序并截断（D35）：排在前面的是多字冲突与实词单字冲突
+        "needs_review_top": review_top,
+        "substantive_conflicts": substantive_count,
+        "minor_conflicts": minor_count,
+        "preference_hits": preference_hits,                           # 由裁决表改判的片段（含原写法）
         "sources": dict(sources),
         "covered": {
             "secondary_only_spans": secondary_only_spans,             # "补上的段数"就是它：次源有、主源漏
@@ -283,6 +363,58 @@ def fuse_transcripts(primary: list[dict], secondary: list[dict], *,
         },
         "verdict": _fusion_verdict(provenance_counts, needs_review_count, secondary_only_spans, secondary_source),
     }
+
+
+# --- 冲突区字符数：replace 数"有几位不同"，insert/delete 用整段长度 ---
+def _conflict_size(primary_span: str, secondary_span: str) -> int:
+    if not primary_span or not secondary_span:
+        return max(len(primary_span), len(secondary_span))
+    if len(primary_span) == len(secondary_span):
+        return sum(1 for left, right in zip(primary_span, secondary_span) if left != right)
+    return max(len(primary_span), len(secondary_span))
+
+
+# --- 一个片段的冲突规模（供排序/统计；缺字段时退回 1）---
+def _difference_size(item: dict) -> int:
+    return int(item.get("conflict_chars") or 1)
+
+
+# --- 复核清单排序与截断：差异大的先看，其余留在 segments 里不隐藏（D35）---
+FUNCTION_WORDS = set("的得地了着过和与及或在是有没就都也又很才之其而于把被给对向从到")  # 虚词差异几乎不影响语义
+
+
+# --- 是否值得人工看：多字差异、单字差异中的实词、或命中裁决表的已知混淆 ---
+def _is_substantive(item: dict) -> bool:
+    size = _difference_size(item)
+    if size >= 2:
+        return True
+    own = str(item.get("text") or "")
+    alternative = str(item.get("alternative_text") or "")
+    chars = {char for char in own + alternative if char not in FUNCTION_WORDS}
+    return bool(chars)                                                    # 单字差异但只要不是纯虚词，就值得看一次
+
+
+def _rank_review_items(spans: list[dict], *, max_items: Optional[int] = None) -> tuple[list[dict], int, int]:
+    """从 spans（对齐结果的权威来源）算复核清单与统计，而不是从合并后的分段里猜。"""
+    conflicts = [span for span in spans
+                 if span.get("side") == "both" and span.get("primary_text") and span.get("secondary_text")]
+    substantive = [span for span in conflicts if _span_is_substantive(span)]
+    ranked = sorted(substantive, key=lambda span: _conflict_size(span["primary_text"], span["secondary_text"]),
+                    reverse=True)
+    limit = max_items if max_items is not None else 30                    # 一屏能看完的清单才有人看
+    listed = [{"start": span.get("start"), "end": span.get("end"),
+               "text": str(span.get("primary_text"))[:40], "alternative_text": str(span.get("secondary_text"))[:40],
+               "difference_chars": _conflict_size(span["primary_text"], span["secondary_text"])}
+              for span in ranked[:limit]]
+    return listed, len(substantive), len(conflicts) - len(substantive)
+
+
+# --- 一个冲突 span 是否值得人工看：多字差异，或单字差异但不是虚词 ---
+def _span_is_substantive(span: dict) -> bool:
+    primary_text, secondary_text = str(span.get("primary_text") or ""), str(span.get("secondary_text") or "")
+    if _conflict_size(primary_text, secondary_text) >= 2:
+        return True
+    return bool({char for char in primary_text + secondary_text if char not in FUNCTION_WORDS})
 
 
 # --- 把片段按 (来源, 下标, 时间窗) 归并成逐段带出处的融合稿 ---

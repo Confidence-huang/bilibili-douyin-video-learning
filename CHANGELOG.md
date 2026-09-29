@@ -2,6 +2,27 @@
 
 All notable public changes are recorded here.
 
+## 1.11.0 - 2026-09-29
+
+- **Fusion can correct, not just annotate.** Fusion used to keep the primary wording on every
+  conflict, so the primary's own OCR errors were inherited - even though the two sources fail
+  differently: author captions are right about homophones (血包/雪包, 供血/工学, 断气/断亲,
+  衣不蔽体/一不避体, 娘俩/两俩, 享福/想福, 经营价值/经济价值 - 11 verified cases) while OCR misreads
+  similar-looking characters (赡/赠, 白/自). A verified wrong-to-right table
+  (`references/conflict-preferences.txt`) now acts as a third criterion: whichever side carries
+  the correct form wins, and every ruling is recorded with `chosen_by` and the matched form.
+  On the real pair the table fires 11 times, all in the right direction. See D35.
+- **The short review list is finally short.** Every conflict being listed is the same as none
+  being listed: the real pair produced 159. Conflicts are now ranked by the size of the
+  conflicting region, only substantive ones are listed (multi-character differences, or
+  single-character differences that are not function words - 的/得 does not count), capped at 30,
+  while the full `spans` list stays authoritative. Real data: **159 to 21**, led by
+  从小到大/创造了, 供血/工学, 享福/想服, 直到/只要.
+- **A character-level trap, caught by real data.** difflib produces character-level opcodes, so a
+  two-character table entry like 赠养→赡养 never matched the 赠/赡 conflict; equal-length entries
+  are now split into per-position character confusions and compared position by position.
+- Tests: **307 passing** offline cases.
+
 ## 1.10.0 - 2026-09-29
 
 - **Retry windows now pass a hallucination gate.** The coverage guard cuts out suspicious gaps
