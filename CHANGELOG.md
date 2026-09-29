@@ -2,6 +2,32 @@
 
 All notable public changes are recorded here.
 
+## 1.8.0 - 2026-09-29
+
+- **Douyin fetch through a real browser context, implemented in this repository.** The
+  anonymous SSR chain is degraded by platform risk control (12 host/UA combinations all return
+  the "验证码中间页" shell with `videoInfoRes` reduced to `status_code`) and the Web API needs
+  `a_bogus`-style signatures that only the site's own JS can produce. `scripts/douyin_browser_fetch.py`
+  therefore imitates the one proven approach natively - a minimal standard-library WebSocket
+  client plus CDP drives a real Chromium, navigates to the video page and calls the logged-in
+  Web API from inside it - without calling or copying any other project's service.
+  `douyin_extract --download-method browser` wires it in, and `auto` prefers it.
+  Verified on real hardware in three layers: transport (handshake → createTarget → navigate →
+  in-page fetch returned 200), logged-in API (the favourites endpoint returned a real
+  `aweme_list`), and offline protocol tests against a real socket. See D31.
+- **`--video <local file>` is now a first-class input.** Douyin fetching is rate-limited, and the
+  file is often already on disk; the pipeline now skips fetching entirely and goes straight to
+  audio → ASR → cleaning → artifacts, with the cache identity taken from path+size+mtime.
+  Verified on the real 259.77s mp4: 122 segments, 1991 characters, coverage 0.9997,
+  cuda/float16, exit 0. See D32.
+- Two findings worth keeping: the 259.77s reference video is no longer fetchable because the
+  author set it to self-only (`filter_reason: status_self_see`, `aweme_detail: null`), and the
+  detail API returns `status_code=0` with an empty detail unless all eight web parameters are
+  sent - a "looks successful but carries no data" trap.
+- Also fixed: the CDP HTTP metadata endpoint now bypasses proxies, because environments with
+  `http_proxy` set route 127.0.0.1 through the proxy and silently fail.
+- Tests: **281 passing** offline cases.
+
 ## 1.7.0 - 2026-09-29
 
 - **Measurement first.** `eval/gold/` ships a text-only gold set (media stays out of the
