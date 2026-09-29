@@ -2,6 +2,27 @@
 
 All notable public changes are recorded here.
 
+## 1.23.0 - 2026-09-29
+
+- **Baselines for every tier, not just the good one.** eval/baselines.json records each case's
+  measured CER with a tolerance, and `run_benchmark.py --baseline` fails when a case gets worse
+  while printing IMPROVED when one gets better. CI now runs it alongside the `--max-cer` gate: the
+  gate covers the `large` tiers that are supposed to pass, and the baseline covers all four cases
+  including `small`. Both matter - `small` sits at 0.11 and 0.23, so a pass/fail threshold would
+  simply stay red, but a regression there is a real signal, and it was exactly this kind of record
+  that showed chunking hurting short audio. See D47.
+- **The chunked output now reports its engine and precision.** Real verification of
+  `--chunk-length 30` on a 109-second audio showed the chunked result carrying `device` but empty
+  `engine` and `compute_type` (D40 had only fixed the device). Both now come from the sub-results, so
+  a chunked transcript has the same field shape as a whole-file one.
+- **Both CLI paths verified on real audio**: `--chunk-length 30` logged
+  "chunked transcription done: 34 segment(s)" with cuda and a populated engine field, and
+  `--chunk-length 0` took the single-pass path.
+- **A CI mistake of mine, caught by running it**: the new baseline step was inserted into both jobs
+  with the PowerShell body, because my platform detection keyed off the wrong line. The ubuntu job
+  now runs the bash form and the windows job the PowerShell form.
+- Tests: **430 passing** offline cases.
+
 ## 1.22.0 - 2026-09-29
 
 - **The regression class from 1.19.0 is now guarded.** tests/test_cli_smoke.py walks every script's

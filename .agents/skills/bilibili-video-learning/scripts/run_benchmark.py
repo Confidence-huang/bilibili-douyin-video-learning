@@ -126,6 +126,26 @@ def render_table(rows: List[Dict[str, Any]]) -> str:
     return "\n".join(lines)
 
 
+# --- 与基线记录比较：劣化失败，改善要显式报出来（D47）---
+def compare_baseline(rows: List[Dict[str, Any]], baseline: Dict[str, Any]) -> List[str]:
+    problems: List[str] = []
+    recorded = {item["case"]: item for item in (baseline.get("cases") or [])}
+    for row in rows:
+        reference = recorded.get(row["case"])
+        if reference is None:
+            problems.append(f"{row['case']}: 基线里没有这个用例（新增用例请先记录基线）")
+            continue
+        expected, tolerance = reference.get("cer"), reference.get("tolerance", 0.005)
+        if row.get("cer") is None or expected is None:
+            problems.append(f"{row['case']}: CER 缺失，无法与基线比较")
+            continue
+        if row["cer"] > expected + tolerance:
+            problems.append(f"{row['case']}: CER 劣化 {row['cer']} > 基线 {expected} + 容差 {tolerance}")
+        elif row["cer"] < expected - tolerance:
+            print(f"IMPROVED: {row['case']} CER {expected} -> {row['cer']}（请更新 eval/baselines.json）")
+    return problems
+
+
 # --- CLI ---
 def main(argv: Optional[List[str]] = None) -> int:
     parser = argparse.ArgumentParser(description="Run several hypothesis-vs-gold cases into one comparison table.")
@@ -133,6 +153,7 @@ def main(argv: Optional[List[str]] = None) -> int:
                         help="名称=产出.json:金标.json（金标可只写文件名，默认在 eval/gold/ 下找），可重复")
     parser.add_argument("--max-cer", type=float, help="闸门：任用例 CER 超过该值即返回 1（供 CI/发版前用）")
     parser.add_argument("--json", action="store_true", help="输出机读 JSON")
+    parser.add_argument("--baseline", help="基线记录文件：读每个用例记录的 CER 与容差，劣化即失败（D47）")
     args = parser.parse_args(argv)
 
     try:
@@ -146,6 +167,17 @@ def main(argv: Optional[List[str]] = None) -> int:
         return 2
 
     print(json.dumps(rows, ensure_ascii=False, indent=1) if args.json else render_table(rows))
+    if args.baseline:
+        baseline_path = Path(args.baseline)
+        baseline_path = baseline_path if baseline_path.exists() else GOLD_DIR.parent / args.baseline
+        try:
+            problems = compare_baseline(rows, json.loads(baseline_path.read_text(encoding="utf-8")))
+        except Exception as exc:
+            print(json.dumps({"error": f"基线读取失败：{type(exc).__name__}: {exc}"}, ensure_ascii=False))
+            return 2
+        if problems:
+            print("FAILED (baseline): " + "; ".join(problems), file=sys.stderr)
+            return 1
     if args.max_cer is not None:
         failed = [row for row in rows if row.get("cer") is not None and row["cer"] > args.max_cer]
         if failed:

@@ -1461,6 +1461,33 @@ run_benchmark.py --case "bili1-large=<fixtures>/bili1_large.json:bilibili-BV1nta
 
 ---
 
+## D47. 基线记录：每个档位都要"不得劣化"，而不只是"大档位达标"
+
+**决策**：`eval/baselines.json` 记录每个用例的实测 CER 与容差；`run_benchmark.py --baseline` 比对：
+**超出容差 → 失败**，**改善 → 打印 `IMPROVED` 并提示更新基线**。CI 里与 `--max-cer` **互补**：
+
+| 闸门 | 覆盖 | 语义 |
+|---|---|---|
+| `--max-cer 0.05` | 只覆盖 `large`（应该达标的档位） | "必须够好" |
+| `--baseline` | **覆盖全部档位（含 `small`）** | "不得变差" |
+
+**为什么两者都要**：`small` 的 CER 本来就在 0.11–0.23，用达标线去卡它没有意义（它会一直红），
+但它**变差**是有意义的信号——上一轮就是靠这种记录才看清"分块在短素材上会劣化"。
+没有基线记录，"只有大档位达标"会掩盖小档位的退化。
+
+**同时修掉一处真实验证顺带发现的缺口**：`--chunk-length 30` 跑通后，分块产出里的
+`engine` 与 `compute_type` 是空的（我 D40 只修了 `device`）。现在两者都从子结果取，
+**分块产出与整段产出的字段形状一致**，否则下游无法知道"到底用了什么引擎/精度"。
+
+**真实验证**：`transcribe_audio_cli.py --audio <109 秒音频> --chunk-length 30` →
+日志 `chunked transcription done: 34 segment(s)`，JSON 里 `device=cuda`、`engine`/`compute_type` 非空；
+`--chunk-length 0` 走整段路径。**两条路径都在真音频上跑过**。
+
+**重新评估触发条件**：如果 CI 时长成为问题，基线步骤可只在 `main` 与发版前跑；
+如果用例增长到几十条，基线文件应改为按素材分组。
+
+---
+
 ## 决策索引
 
 | 编号 | 主题 | 是否可推翻 |
@@ -1511,3 +1538,4 @@ run_benchmark.py --case "bili1-large=<fixtures>/bili1_large.json:bilibili-BV1nta
 | D44 | 跨金标回归命令 / 验收清单 / 标点可选后端 | 可（用例增多则改配置文件） |
 | D45 | CLI 主路径回归 + B站 第二支金标 | 可（加入 CLI 冒烟测试后重评） |
 | D46 | 模块级 CLI 冒烟测试 + 金标闸门进 CI | 可（模型升级时先调闸门） |
+| D47 | 基线记录（全档位不得劣化）+ 分块产出补引擎字段 | 可（CI 时长紧张则只在 main 跑） |
