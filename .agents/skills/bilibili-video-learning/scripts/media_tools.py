@@ -45,7 +45,8 @@ def build_audio_filter_chain(*, normalize: bool = True, denoise: bool = False, h
 
     取舍：用 ffmpeg 内置滤镜而不是神经网络降噪——零新依赖、完全可复现；
     denoise 默认关闭，因为 afftdn 在纯人声上会引入轻微金属感，收益不稳定。
-    实测提醒（D26）：在已经干净的口播素材上，loudnorm 反而让 CER 变差，因此默认关闭、按源启用。
+    实测结论（D26）：在真实抖音音频上这条链让 CER 从 0.0522 降到 0.0433（相对 −17%），
+    因此**默认开启**；`normalize=False` 表示完全不处理，用于与历史行为对照。
     """
     if not normalize:
         return ""

@@ -41,7 +41,7 @@ class TranscriptionSettings(NamedTuple):
     max_retry_windows: int = asr_coverage.DEFAULT_MAX_RETRY_WINDOWS                # 单次运行的补转窗口预算
     low_confidence_logprob: float = -1.0                                          # 与 whisper 默认 logprob 阈值一致
     hotwords: str = ""                                                           # 领域词表（D26）：只做解码偏置，不改写输出
-    word_timestamps: bool = False                                                # 词级时间戳：重新分段与帧对齐的前提（D28）
+    word_timestamps: bool = False                                                # 词级时间戳：重新分段与帧对齐的前提（D30）
     profile: str = "balanced"                                                    # fast/balanced/quality，见 apply_profile
     refine_low_confidence: bool = False                                          # 是否对低置信区间做定向二次解码（D27）
     normalize_audio: bool = True                                                 # 抽音频时是否做 highpass+loudnorm 净化（D26）
@@ -208,7 +208,7 @@ def _run_faster_whisper(
             task="transcribe",                                                        # 学习笔记只需要转写，不做翻译
             beam_size=settings.beam_size,                                             # 由 settings 决定，逐字稿场景可调大
             hotwords=settings.hotwords or None,                                       # 领域词表做解码偏置（D26）
-            word_timestamps=settings.word_timestamps,                                 # 词级时间戳供重新分段（D28）
+            word_timestamps=settings.word_timestamps,                                 # 词级时间戳供重新分段（D30）
             vad_filter=settings.vad_filter,                                           # 跳过课堂静音和空白段，减少无效解码
             vad_parameters={                                                          # VAD 的激进程度直接决定会不会丢掉整句话
                 "min_silence_duration_ms": settings.vad_min_silence_ms,                # 小于该长度的静音不切断
