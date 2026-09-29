@@ -27,6 +27,7 @@ from pathlib import Path
 from datetime import datetime
 
 import asr_lexicon                                                             # 领域词表（D26）
+import douyin_browser_fetch                                                      # 浏览器版取流（模仿已跑通的思路，D31）
 import douyin_ssr
 import media_tools                                                             # 音频前端滤镜链（D26）
 import speech_to_text                                                          # 档位定义与 settings 构造
@@ -232,6 +233,7 @@ def fetch_metadata(
     proxy: str = None,
     impersonate: str = None,
     socket_timeout: int = 60,
+    bridge_options: dict = None,
 ) -> dict:
     """
     Use yt-dlp --dump-json to get metadata without downloading.
@@ -355,6 +357,31 @@ def download_video_with_ssr(
     }
 
 
+# --- Download through a real browser context (own implementation, no external service) ---
+def download_video_via_browser(
+    url: str,
+    work_dir: str,
+    bridge_options: dict = None,
+    ratio: str = "1080p",
+) -> dict:
+    options = dict(bridge_options or {})
+    video_path = os.path.join(work_dir, "douyin_video.mp4")
+    result = douyin_browser_fetch.fetch_video(url, video_path, ratio=ratio, **options)
+    return {
+        "download_method": "browser",
+        "video_path": result["video_path"],
+        "metadata": result["metadata"],
+        "canonical_url": result.get("canonical_url"),
+        "aweme_id": result.get("aweme_id"),
+        "video_id": result.get("aweme_id"),
+        "requested_ratio": result.get("requested_ratio"),
+        "ratio": result.get("ratio"),
+        "diagnostics": [{"step": "browser_fetch", "ok": True,
+                         "message": f"browser fetch ok ratio={result.get('ratio')}",
+                         "available_ratios": result.get("available_ratios")}],
+    }
+
+
 # --- Download through the existing yt-dlp fallback path ---
 def download_video_with_ytdlp(
     url: str,
@@ -407,6 +434,21 @@ def choose_downloaded_video(
 ) -> dict:
     diagnostics = []
     ssr_platform_limited = False                                 # SSR 撞上风控时必须把 26 传出去，不能被笼统的 20 吞掉（D25）。
+
+    if download_method in ("auto", "browser"):                   # 真浏览器上下文取流：匿名路径被风控挡住时的可靠选择（D31）
+        try:
+            add_diagnostic(diagnostics, "browser_fetch", True, "走浏览器上下文取流")
+            browser_result = download_video_via_browser(url, work_dir, bridge_options=bridge_options, ratio=ratio)
+            browser_result["diagnostics"] = diagnostics + browser_result.get("diagnostics", [])
+            return browser_result
+        except Exception as exc:
+            add_diagnostic(diagnostics, "browser_fetch", False, f"浏览器取流失败：{exc}")
+            if download_method == "browser":
+                raise unavailable_error_class(False)(json.dumps({
+                    "error": f"Browser download failed before transcription: {exc}",
+                    "download_method": download_method,
+                    "diagnostics": diagnostics,
+                }, ensure_ascii=False)) from exc
 
     if download_method in ("auto", "ssr"):
         try:
@@ -509,7 +551,7 @@ def transcribe(
 # --- Main entry ---
 
 def extract_douyin(
-    url: str,
+    url: str = None,
     model_size: str = "small",
     language: str = "zh",
     keep_temp: bool = False,
@@ -524,6 +566,8 @@ def extract_douyin(
     settings: TranscriptionSettings | None = None,
     fidelity: str = "verbatim",
     simplify: str = "auto",
+    local_video: str = None,
+    bridge_options: dict = None,
 ) -> dict:
     """
     Main pipeline: choose download method → extract audio → transcribe → clean.
@@ -537,9 +581,13 @@ def extract_douyin(
 
     # Step 1: Use a stable non-identifying folder before the real video ID is known.
     asr_identity = build_asr_identity(active, fidelity, simplify)               # 转写参数、引擎版本、清洗与归一模式一起进入身份
-    cache_identity = build_cache_identity(url, active.model_size, active.language, download_method, ratio, watermark,
-                                          asr_identity)
-    cache_key = build_cache_key(url, active.model_size, active.language, download_method, ratio, watermark, asr_identity)
+    cache_source = url or (f"local:{os.path.abspath(local_video)}:{os.path.getsize(local_video)}:"
+                           f"{int(os.path.getmtime(local_video))}")                   # 本地文件用路径+大小+时间做身份（D32）
+    cache_identity = build_cache_identity(cache_source, active.model_size, active.language, download_method, ratio,
+                                          watermark, asr_identity)
+    cache_key = build_cache_key(cache_source, active.model_size, active.language, download_method, ratio, watermark,
+                                asr_identity)
+    pipeline_diagnostics: list = []                                                   # 管线级诊断（本地文件等前置步骤）
     work_dir = os.path.join(temp_dir, cache_key)                  # 分享文本不再直接出现在临时目录名中。
     os.makedirs(work_dir, exist_ok=True)
     cache_path = os.path.join(work_dir, "result.json")
@@ -561,16 +609,37 @@ def extract_douyin(
     downloaded_video = None
 
     # Step 2: Check for cached audio after download metadata chooses the real ID.
-    downloaded_video = choose_downloaded_video(
-        url,
-        work_dir,
-        download_method=download_method,
-        ratio=ratio,
-        watermark=watermark,
-        proxy=proxy,
-        impersonate=impersonate,
-        socket_timeout=socket_timeout,
-    )
+    if local_video:                                                # 1b：本地文件直接进管线，跳过一切取流（D32）
+        download_method = "local"
+        local_path = os.path.abspath(local_video)
+        if not os.path.isfile(local_path):
+            raise FileNotFoundError(f"local video not found: {local_path}")
+        add_diagnostic(pipeline_diagnostics, "local_video", True, "使用本地视频文件，跳过取流",
+                       file_name=os.path.basename(local_path), size_bytes=os.path.getsize(local_path))
+        downloaded_video = {
+            "download_method": "local",
+            "video_path": local_path,
+            "metadata": {"video_id": Path(local_path).stem, "title": Path(local_path).stem,
+                         "fulltitle": Path(local_path).stem, "description": "", "uploader": "", "channel": "",
+                         "duration": 0, "duration_string": "", "upload_date": "", "webpage_url": "",
+                         "view_count": 0, "like_count": 0, "comment_count": 0, "repost_count": 0,
+                         "save_count": 0, "thumbnail": "", "extractor": "LocalFile"},
+            "canonical_url": local_path,
+            "aweme_id": None,
+            "video_id": Path(local_path).stem,
+        }
+    else:
+        downloaded_video = choose_downloaded_video(
+            url,
+            work_dir,
+            download_method=download_method,
+            ratio=ratio,
+            watermark=watermark,
+            proxy=proxy,
+            impersonate=impersonate,
+            socket_timeout=socket_timeout,
+            bridge_options=bridge_options,
+        )
     metadata = downloaded_video["metadata"]
     video_id = metadata.get("video_id") or downloaded_video.get("aweme_id") or "douyin"
     wav_path = os.path.join(work_dir, f"{video_id}.wav")
@@ -608,7 +677,7 @@ def extract_douyin(
         "video_id": downloaded_video.get("video_id"),
         "requested_ratio": downloaded_video.get("requested_ratio"),
         "downloaded_ratio": downloaded_video.get("ratio"),
-        "diagnostics": downloaded_video.get("diagnostics", []),
+        "diagnostics": (downloaded_video.get("diagnostics") or []) + pipeline_diagnostics,
         "model_size": active.model_size,
         "transcription_engine": asr_result.get("engine"),
         "transcription_device": asr_result.get("device"),
@@ -767,7 +836,12 @@ def parse_cli_arguments(argv: list) -> argparse.Namespace:
     parser.add_argument("-o", "--output", help="Save Markdown to directory")
     parser.add_argument("--chinese", action="store_true", help="Use zh language for transcription")
     parser.add_argument("--english", action="store_true", help="Use en language for transcription")
-    parser.add_argument("--download-method", default="auto", choices=("auto", "ssr", "ytdlp"), help="Download path: auto tries public SSR before yt-dlp")
+    parser.add_argument("--download-method", default="auto", choices=("auto", "browser", "ssr", "ytdlp"),
+                        help="Download path: auto tries a real browser context, then public SSR, then yt-dlp")
+    parser.add_argument("--video", help="本地视频文件：跳过取流，直接用该文件走转写与产出（抖音取流不可靠时的稳定路径）")
+    parser.add_argument("--browser", help="浏览器可执行文件路径（浏览器取流用；默认自动查找 Chrome/Edge）")
+    parser.add_argument("--browser-profile", help="浏览器专用登录态目录（默认 ~/.cache/douyin-browser-profile，需在该目录登录一次抖音）")
+    parser.add_argument("--browser-port", type=int, default=None, help="CDP 端口（默认 9333；已有实例则复用）")
     parser.add_argument("--ratio", default="1080p", choices=douyin_ssr.RATIOS, help="SSR play ratio")
     parser.add_argument("--watermark", action="store_true", help="Use SSR playwm endpoint instead of watermark-free play")
     parser.add_argument("--list-ratios", action="store_true", help="Probe SSR ratio availability and exit before downloading/transcribing")
@@ -795,7 +869,7 @@ def main(argv: list = None) -> int:
     configure_output_encoding()                                                   # 先修正输出层，再打印任何用户来源文本
     args = parse_cli_arguments(argv if argv is not None else sys.argv[1:])
 
-    if not args.url:
+    if not args.url and not args.video:                                           # 二选一：在线链接 或 本地文件（D32）
         parse_cli_arguments(["--help"])
         return EXIT_GENERIC_FAILURE                                               # 缺参数属于用法错误，不是平台故障
 
@@ -829,6 +903,9 @@ def main(argv: list = None) -> int:
             proxy=args.proxy,
             impersonate=args.impersonate,
             socket_timeout=args.socket_timeout,
+            local_video=args.video,                                                   # 本地文件入口（D32）
+            bridge_options={"port": args.browser_port or douyin_browser_fetch.DEFAULT_PORT,
+                            "browser": args.browser, "profile": args.browser_profile},
             use_cache=not args.no_cache,
             settings=settings,                                                    # VAD 与覆盖率兜底开关随参数进入转写
             fidelity=args.fidelity,                                               # 清洗模式同时决定落盘正文与缓存身份

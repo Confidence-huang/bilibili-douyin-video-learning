@@ -84,6 +84,16 @@
 - 定向重解：四种拒绝理由（空结果/覆盖缩水/文本发散/置信度未提升）逐一覆盖，单窗口失败不拖垮其它窗口。
 - 重新分段：不丢词硬不变量、停顿与标点切分、时间单调不重叠、无 words 时降级、SRT 每行 ≤ 上限。
 
+### 浏览器取流与本地文件入口
+
+- 自研 WS 客户端：用**真 socket** 起极简服务端验证握手与帧编解码（往返内容一致才算通过）。
+- CDP 会话：无 id 的事件必须跳过；`error` 必须上抛而不是当空结果。
+- 纯函数：aweme_id 解析（链接/裸 ID/modal_id/无关文本）、选档（命中档位→默认）、
+  图文作品无播放地址必须明确报错、元数据字段映射。
+- 环境：复用已在跑的 CDP 不重启浏览器；找不到浏览器时给可执行提示；端点探测失败返回 `None` 而不抛。
+- CLI：缺参数 = 用法错误码；浏览器不可用 = 20 且 JSON 带 `kind=browser_unavailable`。
+- 本地文件入口：真实 mp4 端到端（跳取流、`download_method=local`、覆盖率与段落数）。
+
 ### 多源融合与无音轨
 
 - 融合：一致→主源、次源补段、主源保留、冲突记 alternatives 与 needs_review、**并集不变量**、provenance 计数。
@@ -151,7 +161,7 @@
 - Linux CLI Python：`${XDG_DATA_HOME:-$HOME/.local/share}/bilibili-video-learning/runtime/bin/python`
 - Windows CLI Python：`<skill-root>\.venv-gpu\Scripts\python.exe`
 - 安装方式：平台安装器调用 `uv pip install --python <CLI-Python> --no-deps -e <skill-root>/agent-harness`
-- 安装入口：`cli-anything-video-learning` 1.7.0
+- 安装入口：`cli-anything-video-learning` 1.8.0
 - 运行约束：`CLI_ANYTHING_FORCE_INSTALLED=1`，测试不得回退到源码模块
 
 执行命令：
@@ -163,18 +173,18 @@ python -m pytest cli_anything/video_learning/tests -q
 最终结果：
 
 ```text
-270 passed, 1 skipped in 5.47s
+281 passed, 1 skipped in 11.10s
 ```
 
 验收覆盖：
 
-- 270 个离线/安装态测试通过，覆盖安全 yt-dlp 参数、严格分 P、字幕解析、Cookie 风险授权、默认省略全文、诊断脱敏、原子写入、来源身份、抖音 SSR/缓存和跨平台运行时入口。
+- 281 个离线/安装态测试通过，覆盖安全 yt-dlp 参数、严格分 P、字幕解析、Cookie 风险授权、默认省略全文、诊断脱敏、原子写入、来源身份、抖音 SSR/缓存和跨平台运行时入口。
 - 1.5.0 新增三组断言：ASR 覆盖率兜底（`test_asr_coverage.py`，含真实 VAD 丢字 fixture 的 196.24–201.84s 空档、
   静音不补转、预算封顶、超长窗口跳过、重叠区间只算一次、补转窗口关闭 VAD、VAD 参数真实下传、关闭校验时保持原样）；
   退出码契约（`test_exit_codes.py`，含抖音 `main()` 的 20/24 码与 JSON 一致性、B站异常分支保留 2 号兜底）；
   CUDA 不可用时的降级（`test_cross_platform.py`，覆盖惰性解码失败、构造期失败、显式 CUDA 不降级、兜底失败时保留根因）。
 - 轻量 CI 环境跳过唯一要求完整 ASR 运行时的 doctor 测试；默认套件不联网、不下载媒体、不读取浏览器 Cookie，也不启动模型推理。
-- 隔离 Linux 完整安装验收通过：依赖一致、CLI 1.7.0、本地合成 MP4 转 16 kHz 单声道 WAV、doctor 找到外置 runtime、yt-dlp、imageio-ffmpeg、faster-whisper 和 CTranslate2。
+- 隔离 Linux 完整安装验收通过：依赖一致、CLI 1.8.0、本地合成 MP4 转 16 kHz 单声道 WAV、doctor 找到外置 runtime、yt-dlp、imageio-ffmpeg、faster-whisper 和 CTranslate2。
 - Skill Creator 校验通过；Skill Lifecycle Manager 的 Static、Runtime、Behavior 三层验证均通过。
 - Windows CUDA 完整安装与真实 GPU ASR 留给 Windows GitHub Actions 和显式授权的真实硬件 smoke；本地 Linux 验收不冒充 Windows GPU 证据。
 - 1.5.0 的真实端到端复核（不进入离线套件，证据留在本轮记录中）：抖音 259.77 秒音频与 B站 30.6 秒视频

@@ -936,6 +936,68 @@ B站字幕优先跳过 ASR / 无字幕回退 ASR / `--fuse` 三态。
 
 ---
 
+## D31. 浏览器取流：模仿已验证的思路自己做一份，且不与另一个仓库耦合
+
+**决策**：新增 `scripts/douyin_browser_fetch.py`——**自研**的浏览器取流通道（极简 WebSocket 客户端 +
+CDP 会话 + 页面内 `fetch`），并通过 `douyin_extract --download-method browser`（`auto` 时优先）接入。
+它只**参考**已有插件的思路（真实浏览器上下文里发请求，签名由站点自己的 JS 算），
+**不调用它的服务、不复制它的代码、不把它作为依赖**。桥接（BrowserSkill 同理）属于别人/别的仓库。
+
+**背景**：抖音匿名 SSR 路径会被风控降级（实测 12 个 host×UA 组合全部返回「验证码中间页」，
+`videoInfoRes` 只剩 `status_code`）；匿名调 Web API 是 403
+`Blocked by ArgusSecurityPlugin Uifid Not Found`，因为 Web API 要求
+`a_bogus + timestamp + x-secsdk-web-signature`，而它们只能由站点前端 JS 生成。
+"在真浏览器里发这个请求"是唯一被验证过可行的思路，因此把它**内化成本仓库自己的实现**。
+
+**实测验证层级（三个都做了，证据分明）**：
+1. **传输层（真机、真浏览器）**：从 WSL 启动 Windows Chrome（专用 profile + `--remote-debugging-port`），
+   自研 WS 握手 → `Target.createTarget` → `Page.navigate` → `Runtime.evaluate(awaitPromise)` →
+   页面内 `fetch('https://www.douyin.com/robots.txt')` **返回 200**。协议栈完全自证。
+2. **登录态 API（真机、真账号）**：用已登录 profile 调 `/aweme/v1/web/aweme/listcollection/`，
+   **返回真实 `aweme_list`**（含 `authentication_token` 等字段）→ 说明"借真浏览器拿登录态"这条路成立。
+3. **协议层离线**：CI 里没有浏览器，因此 `tests/test_browser_fetch.py` 用**真 socket** 起极简 WS 服务端
+   验证握手与帧编解码，用假 ws 验证 CDP 的 id 关联与错误上抛，纯函数测解析/选档/元数据/失败分类。
+
+**途中发现的两件事**：
+- **那支 259.77 秒的视频已不可取**：登录态详情接口返回
+  `"aweme_detail": null, "filter_detail": {"filter_reason": "status_self_see", "detail_msg": "因作品权限或已被删除"}`——
+  作者把它改成了**仅自己可见**。这解释了当天匿名路径的"降级"表象：不只是风控，内容本身也变了。
+- **`DETAIL_PARAMS` 必须带全 8 项**（`cookie_enabled`/`browser_language`/`browser_platform`/`browser_name` 等）：
+  只带 4 项时接口会返回 `status_code=0` 但 `aweme_detail` 为空——这是"看起来成功其实没数据"的典型陷阱。
+
+**取舍与边界**：
+- 用专用登录态目录（默认 `~/.cache/douyin-browser-profile`，`--browser-profile` 可指到已登录 profile），
+  **不碰用户主浏览器配置**；首次需在该目录登录一次抖音。
+- `base64` 回传上限 120MB，超限明确报错而不是 OOM；不做验证码识别、不绕过登录墙，命中风控如实失败。
+- 本机 CDP 的 HTTP 元信息端点**必须绕过代理**（环境里有 `http_proxy` 时 urllib 会把 127.0.0.1 也发给代理）。
+- 只依赖标准库（自研 WS + CDP），不引入 playwright/selenium 之流。
+
+**重新评估触发条件**：如果平台开始提供稳定的免签名公开接口，本通道应降级为可选；
+如果 Chrome 收紧 `--remote-debugging-port` 的本地策略，则改用管道模式或让用户手动启动实例。
+
+---
+
+## D32. 本地视频文件是一等输入：抖音取流不可靠时的稳定路径
+
+**决策**：`douyin_extract.py` 新增 `--video <本地文件>`，跳过一切取流，直接
+抽音频 → ASR → 清洗 → 产出（`md/json/srt/txt`）。缓存身份用**路径+大小+mtime**，
+`download_method` 记为 `local`，并写一条 `local_video` 诊断。
+
+**背景**：抖音的公开取流会被限流/风控（D31 记录了实测），而用户手上常常已经有视频文件
+（自己下载、或由插件同步时落盘）。过去 CLI 只接受 URL，导致"有文件也走不了管线"。
+
+**真实数据验证**：用真实 259.77 秒 mp4 跑
+`douyin_extract.py --video <file> --model small --json` →
+**122 段 / 1991 字 / 覆盖率 0.9997 / `cuda/float16` / `download_method=local` / 退出码 0**，
+首条诊断为"使用本地视频文件，跳过取流"。
+
+**取舍**：本地文件的元数据只有文件名（没有作者/点赞等），因为那些本来就不在文件里；
+不伪造缺失字段，`extractor` 标为 `LocalFile` 让下游能分辨来源。
+
+**重新评估触发条件**：如果取流恢复稳定，`--video` 仍应保留——它是离线/隐私场景的首选。
+
+---
+
 ## 决策索引
 
 | 编号 | 主题 | 是否可推翻 |
@@ -970,3 +1032,5 @@ B站字幕优先跳过 ASR / 无字幕回退 ASR / `--fuse` 三态。
 | D28 | 无音轨单独成档（27），改走图片 OCR | 可（若平台提供图文文案） |
 | D29 | 多源融合 + per-span provenance | 可（若确认字幕轨可用） |
 | D30 | 词级重新分段：不丢词是硬不变量 | 可（若引擎自带标点/长段） |
+| D31 | 浏览器取流自研实现，不耦合其它仓库 | 可（若平台放开免签名接口） |
+| D32 | 本地视频文件是一等输入 | 可（取流恢复后仍保留） |
