@@ -1,11 +1,18 @@
 #!/usr/bin/env python3
 r"""
-ASR 覆盖率校验：找出被 VAD 静默吃掉的语音窗口，并在必要时局部重转。
+ASR 覆盖率校验：找出时间轴上被静默丢掉的多秒语音，并在必要时局部补转。
 
 为什么需要这个模块：
-    faster-whisper 的 `vad_filter=True` 在"人声 + 背景音乐/噪声"的片段上可能把整段判成静音，
-    直接丢弃 5 秒以上的正文；调用方只会看到"少了几句话"，没有任何报错。
-    实测案例与阈值依据见 docs/DECISIONS.md D16。
+    转写可能整段丢掉 5 秒以上的正文而不报任何错，调用方只会看到"少了几句话"。
+    实测记录见 docs/DECISIONS.md D16：同一个 259.77 秒音频，
+    在 CPU/int8 上丢在 196.24–201.84s，在 GPU/float16 上丢在 101.88–107.32s，
+    另一些配置丢在 52.42–57.98s 与 199.78–204.56s。
+    因为**丢在哪一段每次都不同**，固定时刻的测试抓不到它，只有运行时校验才靠得住。
+
+    注意：这不是 VAD 的锅。消融实验里把 `vad_filter=False` 之后，
+    空档位置与开启 VAD 时**完全一致**（52.42–57.98s）。丢字发生在解码/分段层面，
+    `word_timestamps=True` 与 `beam_size=5` 与更大的空档相关，但尚未定位到唯一因素。
+    因此本模块**不对任何单一开关做假设**，一律按"时间轴空洞 + 实测音量"判断。
 
 本模块的边界：
     只做"量音频时长 / 量窗口音量 / 找可疑空档 / 合并重转结果"，
@@ -183,7 +190,6 @@ def apply_coverage_guard(
     segments: list[dict],
     transcribe_window,                                                                  # 回调：把窗口音频转成 [{from,to,content}]
     *,
-    vad_filter: bool = True,                                                            # 只有在 VAD 开启时才存在"被 VAD 吃掉"的风险
     coverage_floor: float = DEFAULT_COVERAGE_FLOOR,
     gap_min_seconds: float = DEFAULT_GAP_MIN_SECONDS,
     speech_dbfs: float = DEFAULT_SPEECH_DBFS,
@@ -205,11 +211,6 @@ def apply_coverage_guard(
     }
     if audio_duration is None:                                                          # 量不到时长就无法校验，明确写在报告里
         report["skipped_reason"] = "audio duration unavailable"
-        return {"segments": segments, "report": report}
-    if not vad_filter:                                                                  # 未启用 VAD 时不会出现整段被吞，直接给出覆盖率
-        report["checked"] = True
-        report["coverage_before"] = report["coverage_after"] = coverage_ratio(segments, audio_duration)
-        report["skipped_reason"] = "vad disabled, nothing to recover"
         return {"segments": segments, "report": report}
 
     gaps = find_coverage_gaps(segments, audio_duration, gap_min_seconds)                # 第一步：时间轴上的空洞

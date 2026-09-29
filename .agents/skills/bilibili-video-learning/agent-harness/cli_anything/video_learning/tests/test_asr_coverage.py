@@ -1,13 +1,13 @@
 """
 ASR 覆盖率兜底的离线契约测试。
-这些测试直接加载 live Skill 脚本，用真实 VAD 丢字数据和注入式探测验证：
+这些测试直接加载 live Skill 脚本，用真实丢字数据和注入式探测验证：
 “不能静默丢掉语音、不能在没有证据时补转、不能把补转结果拼错时间轴”。
 运行示例：python -m pytest cli_anything/video_learning/tests/test_asr_coverage.py -v
 """
 from __future__ import annotations  # 测试使用现代类型标注，同时保持 Python 3.10+ 兼容。
 
 import importlib.util  # 按真实脚本路径加载 live Skill，而不是复制业务实现。
-import json  # 读取真实 VAD 丢字 fixture。
+import json  # 读取真实丢字 fixture。
 import sys  # 把 scripts 目录加入模块搜索路径，保持脚本原有绝对导入可用。
 from pathlib import Path  # 从测试文件稳定定位 Skill 根目录与 fixture。
 from types import SimpleNamespace  # 模拟 subprocess.CompletedProcess 的最小字段。
@@ -46,12 +46,12 @@ def write_placeholder_audio(tmp_path: Path) -> Path:
     return audio
 
 
-# --- 真实 VAD 丢字必须被定位到唯一空档 ---
+# --- 真实丢字必须被定位到唯一空档 ---
 def test_real_dropped_speech_is_reported_as_one_gap():
     fixture = load_dropped_speech_fixture()  # 180 段真实分段 + 真实时长 259.77s。
     gaps = asr_coverage.find_coverage_gaps(fixture["segments"], fixture["audio_duration"], 2.0)
 
-    assert len(gaps) == 1  # 该视频只有这一处被 VAD 吃掉。
+    assert len(gaps) == 1  # 这份真实产物只有这一处整段丢失。
     assert gaps[0]["start"] == pytest.approx(196.24, abs=0.01)  # 丢失区间起点。
     assert gaps[0]["end"] == pytest.approx(201.84, abs=0.01)  # 丢失区间终点。
     assert gaps[0]["seconds"] == pytest.approx(5.6, abs=0.01)  # 5.6 秒正文被静默丢弃。
@@ -159,12 +159,12 @@ def test_ffmpeg_probes_parse_duration_and_volume(monkeypatch):
     assert asr_coverage.measure_window_dbfs("audio.wav", 196.24, 201.84) == pytest.approx(-12.9)  # 真实丢字窗口音量。
 
 
-# --- 关键行为：VAD 丢字时自动用“关闭 VAD”的窗口补转回来 ---
+# --- 关键行为：第一遍整段丢字时，自动切出该窗口重新解码并补回 ---
 def test_transcribe_audio_file_recovers_dropped_speech(monkeypatch, tmp_path):
     speech_to_text = load_script("speech_to_text")  # 加载生产入口。
     fixture = load_dropped_speech_fixture()  # 第一遍就是这份真实丢字结果。
     audio = write_placeholder_audio(tmp_path)  # 只满足存在性校验。
-    window_calls: list[dict] = []  # 记录窗口补转的调用参数，用于断言 VAD 被关闭。
+    window_calls: list[dict] = []  # 记录窗口补转的调用次数与切片路径。
 
     def fake_engine(audio_path, settings, device, log_prefix):
         result = {
@@ -208,7 +208,7 @@ def test_transcribe_audio_file_recovers_dropped_speech(monkeypatch, tmp_path):
     assert coverage_diagnostics[0]["retried_windows"][0]["dbfs"] == pytest.approx(-12.9)  # 补转依据可复核。
 
 
-# --- 补转必须关闭 VAD，否则同一个窗口会被再吞一次 ---
+# --- 补转窗口必须以关闭 VAD 的条件重新解码 ---
 def test_window_retry_disables_vad(monkeypatch, tmp_path):
     speech_to_text = load_script("speech_to_text")
     recorded: dict = {}  # 保存窗口解码时真实使用的参数。
@@ -218,7 +218,7 @@ def test_window_retry_disables_vad(monkeypatch, tmp_path):
             self.first_call = True
 
         def transcribe(self, audio, **kwargs):
-            if self.first_call:  # 第一遍：VAD 开启，返回缺字结果。
+            if self.first_call:  # 第一遍：整段返回空，模拟真实产物里的整段丢失。
                 self.first_call = False
                 recorded["first_pass"] = kwargs
                 return iter([]), SimpleNamespace(language="zh", language_probability=1.0)
@@ -235,8 +235,8 @@ def test_window_retry_disables_vad(monkeypatch, tmp_path):
     # 第一遍没有任何分段 -> 整段被判定为空洞，且实测有人声，必然触发窗口补转。
     result = speech_to_text.transcribe_audio_file(write_placeholder_audio(tmp_path))
 
-    assert recorded["first_pass"]["vad_filter"] is True  # 第一遍仍按默认开启 VAD。
-    assert recorded["window"]["vad_filter"] is False  # 补转必须关闭 VAD，这正是修复点。
+    assert recorded["first_pass"]["vad_filter"] is True  # 第一遍仍按默认参数解码。
+    assert recorded["window"]["vad_filter"] is False  # 补转换一种解码条件，且在隔离上下文里重跑。
     assert "补回来的正文" in result["text"]  # 窗口结果被并回全文。
 
 
@@ -340,3 +340,32 @@ def test_vad_aggressiveness_changes_the_parameter_identity():
 
     assert default_identity["vad_min_silence_ms"] == 2000  # 默认值与 faster-whisper 保持一致
     assert default_identity != aggressive_identity  # 调过 VAD 就不能复用旧缓存
+
+
+# --- 丢字与 VAD 无关：第一遍关闭 VAD 也必须照常校验（消融实验结论，见 D16） ---
+def test_coverage_guard_runs_even_when_the_first_pass_had_vad_disabled(monkeypatch, tmp_path):
+    speech_to_text = load_script("speech_to_text")
+    fixture = load_dropped_speech_fixture()
+    retried: list[str] = []  # 记录是否真的发生了窗口补转。
+
+    def fake_engine(audio_path, settings, device, log_prefix):
+        return (
+            {
+                "engine": "faster-whisper", "model_size": settings.model_size, "device": "cpu",
+                "compute_type": "int8", "cuda_devices": 0, "language": "zh",
+                "language_probability": 1.0, "segments": [dict(segment) for segment in fixture["segments"]],
+                "diagnostics": [{"engine": "faster-whisper", "ok": True, "message": "ok"}],
+            },
+            lambda clip: retried.append(str(clip)) or [{"from": 0.0, "to": 5.6, "content": "补回来的正文"}],
+        )
+
+    monkeypatch.setattr(speech_to_text, "_run_faster_whisper", fake_engine)
+    monkeypatch.setattr(asr_coverage, "audio_duration_seconds", lambda path: fixture["audio_duration"])
+    monkeypatch.setattr(asr_coverage, "measure_window_dbfs", lambda path, start, end: -12.9)
+    monkeypatch.setattr(asr_coverage, "cut_audio_window", lambda path, start, end, out: Path(out))
+
+    settings = speech_to_text.TranscriptionSettings(vad_filter=False)  # 第一遍就关掉了 VAD
+    result = speech_to_text.transcribe_audio_file(write_placeholder_audio(tmp_path), settings=settings)
+
+    assert retried, "关闭 VAD 并不能保证不丢字，覆盖率校验必须照常执行"
+    assert "补回来的正文" in result["text"]  # 补转结果照样并回全文
