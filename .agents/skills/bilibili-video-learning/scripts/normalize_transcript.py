@@ -196,6 +196,26 @@ def simplification_mode() -> str:
 
 
 # --- 繁简归一 ---
+
+def simplify_diagnostic(report: dict) -> dict:
+    """把 `simplify_segments` 的报告转成一条诊断（D49）：`ok` 表示**真的改了字**，不是"尝试过"。
+
+    为什么单独做成函数：产出里必须能看出"这份稿子到底有没有做过繁简转换"——
+    此前报告被拿到后就丢掉了，读稿的人无从判断，跨环境比较基线时也看不出差异来源。
+    """
+    mode = str(report.get("mode") or "auto")
+    applied = bool(report.get("applied"))
+    changed = int(report.get("changed_segments") or 0)
+    if mode == "off":
+        message = "繁简归一未启用"
+    elif applied:
+        message = f"繁简归一已生效（{changed} 段被改写）"
+    else:
+        message = f"繁简归一降级未生效：{report.get('reason') or '未知原因'}"
+    return {"step": "simplify", "ok": applied, "mode": mode, "changed_segments": changed,
+            "reason": report.get("reason"), "message": message}
+
+
 def simplify_segments(segments, *, mode: str = "auto", converter=None) -> tuple[list[dict], dict]:
     if mode not in SIMPLIFY_MODES:
         raise ValueError(f"unknown simplify mode '{mode}'; choose one of {SIMPLIFY_MODES}")

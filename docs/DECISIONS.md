@@ -1516,6 +1516,27 @@ run_benchmark.py --case "bili1-large=<fixtures>/bili1_large.json:bilibili-BV1nta
 
 ---
 
+## D49. 把"归一到底做没做"写进产出；基线的改善可一键落库
+
+**决策一：`normalize_transcript.simplify_diagnostic(report)`，产出里写明归一是否真的生效。**
+`douyin_extract` 早就拿到了 `simplification_report`，但**拿到就丢**——读稿的人无从判断这份稿子
+有没有做过繁简转换，跨环境比基线时也看不出差异来源。现在它变成一条 `step="simplify"` 诊断，
+`ok` 表示**真的改了字**（`applied`），并带上 `mode` / `changed_segments` / `reason`。
+
+**决策二：`run_benchmark.py --write-baseline`——改善后一键落库。**
+此前"改善"只在屏幕上打印 `IMPROVED`，而基线文件仍停在旧值（迟早变成谎报的达标线）。
+现在显式开关即可把本次结果写回 `cer_by_mode`。**默认不写**、**CI 不写**：让评测保持只读，
+避免"跑一次 CI 就改了仓库"。
+
+**决策三：验收文档补"归一模式"维度。** 同一 fixture 在 `opencc` 与 `fallback` 下分别是
+0.1111 / 0.1282（small），0.2298 / 0.3662（small），而 `large` 两模式相同——
+**任何 CER 数字都必须连同 `norm` 一起引用**，否则是在比较两个不同的度量。
+
+**重新评估触发条件**：如果将来归一改为按需下载字典，"降级"会变成"首次运行需联网"，
+诊断里的 `reason` 需要相应改写；如果基线文件出现多种模式且数量增长，应拆成按模式分文件。
+
+---
+
 ## 决策索引
 
 | 编号 | 主题 | 是否可推翻 |
@@ -1568,3 +1589,4 @@ run_benchmark.py --case "bili1-large=<fixtures>/bili1_large.json:bilibili-BV1nta
 | D46 | 模块级 CLI 冒烟测试 + 金标闸门进 CI | 可（模型升级时先调闸门） |
 | D47 | 基线记录（全档位不得劣化）+ 分块产出补引擎字段 | 可（CI 时长紧张则只在 main 跑） |
 | D48 | 归一模式报告真实值（opencc/fallback），基线按模式记录 | 可（出现第二种归一实现时扩展） |
+| D49 | 归一结果写进产出诊断；基线改善可落库 | 可（归一改为联网下载时重写 reason） |

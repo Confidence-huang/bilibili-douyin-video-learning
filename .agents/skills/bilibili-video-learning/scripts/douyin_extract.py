@@ -52,6 +52,7 @@ from clean_transcript import FIDELITY_MODES, clean_segments                     
 from normalize_transcript import (                                               # 唯一的分段形状与文本归一化
     SIMPLIFY_MODES,
     join_with_pause_punctuation,
+    simplify_diagnostic,
     simplify_segments,
     to_plain_text,
     to_srt,
@@ -654,6 +655,12 @@ def extract_douyin(
     raw_segments, _, asr_result = transcribe(wav_path, active.model_size, active.language, settings=active)
     segments, cleaning_report = clean_segments(raw_segments, fidelity=fidelity)  # 清洗是管道的一步，不是可选的外部脚本
     segments, simplification_report = simplify_segments(segments, mode=simplify)  # 繁简归一：缺 OpenCC 时只记录不失败
+    if simplification_report.get("mode") != "off":                                       # 产出里写明是否真的转换过（D49）
+        add_diagnostic(pipeline_diagnostics, "simplify", simplification_report.get("applied", False),
+                       simplify_diagnostic(simplification_report)["message"],
+                       mode=simplification_report.get("mode"),
+                       changed_segments=simplification_report.get("changed_segments"),
+                       reason=simplification_report.get("reason"))
     full_text = to_plain_text(segments)                                         # 逐字全文必须与落盘分段一致
     readable_text = join_with_pause_punctuation(segments)                       # 可读全文按停顿补句读，仅供阅读与检索
     log(f"[douyin] Cleaned with fidelity={fidelity}: {cleaning_report['input_segments']} -> "

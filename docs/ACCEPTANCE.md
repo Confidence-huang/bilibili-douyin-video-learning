@@ -54,6 +54,22 @@ run_benchmark.py --case ...(四例)... --baseline eval/baselines.json
 即：`large` 要"够好"，**所有档位都不许变差**（改善会打印 `IMPROVED` 并提示更新基线）。
 `eval/baselines.json` 记录每例的 CER 与容差。
 
+## 归一模式：数字背后的隐藏维度（务必随数字一起看）
+
+同一个 fixture、同一个模型，**归一模式不同，CER 就不同**：
+
+| 用例 | `t2s:opencc+n`（装了 OpenCC） | `t2s:fallback+n`（缺依赖降级） |
+|---|---|---|
+| bili1-small | 0.1111 | **0.1282** |
+| bili2-small | 0.2298 | **0.3662** |
+| bili1-large / bili2-large | 0.0085 / 0.0051 | 相同（产出里无繁体字） |
+
+因此：
+- `run_benchmark.py` 的表里**必带 `norm` 列**，任何数字都要连同它一起引用；
+- `eval/baselines.json` 按**真实模式**分别记录（`cer_by_mode`），每个环境各比各的；
+- 报告的 `normalization.traditional_to_simplified` 是**行为判定**的真实值（`opencc` / `fallback`），
+  不是"尝试过"的布尔值——曾经写死 `True`，正是它让跨环境基线永远对不上（D48）。
+
 ## 金标的证据强度（不要混用）
 
 | `reference.kind` | 强度 | 用途 |

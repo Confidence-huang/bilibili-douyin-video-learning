@@ -193,6 +193,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--max-cer", type=float, help="闸门：任用例 CER 超过该值即返回 1（供 CI/发版前用）")
     parser.add_argument("--json", action="store_true", help="输出机读 JSON")
     parser.add_argument("--baseline", help="基线记录文件：读每个用例记录的 CER 与容差，劣化即失败（D47）")
+    parser.add_argument("--write-baseline", action="store_true",
+                        help="把本次结果写回基线文件（改善后一键落库；CI 不要用，见 D49）")
     args = parser.parse_args(argv)
 
     try:
@@ -210,7 +212,18 @@ def main(argv: Optional[List[str]] = None) -> int:
         baseline_path = Path(args.baseline)
         baseline_path = baseline_path if baseline_path.exists() else GOLD_DIR.parent / args.baseline
         try:
-            problems = compare_baseline(rows, json.loads(baseline_path.read_text(encoding="utf-8")))
+            baseline_document = json.loads(baseline_path.read_text(encoding="utf-8"))
+            problems = compare_baseline(rows, baseline_document)
+            if args.write_baseline:                                              # 先落库、再判定（首次记录不该被判失败）
+                for row in rows:
+                    if row.get("cer") is None:
+                        continue
+                    for item in baseline_document.get("cases") or []:
+                        if item.get("case") == row["case"]:
+                            item.setdefault("cer_by_mode", {})[row.get("norm")] = row["cer"]
+                baseline_path.write_text(json.dumps(baseline_document, ensure_ascii=False, indent=1), encoding="utf-8")
+                problems = compare_baseline(rows, baseline_document)             # 用落库后的记录重新判定
+                print(f"WROTE baseline: {baseline_path}（本次结果已落库）")
         except Exception as exc:
             print(json.dumps({"error": f"基线读取失败：{type(exc).__name__}: {exc}"}, ensure_ascii=False))
             return 2

@@ -363,3 +363,42 @@ def test_cache_identity_tracks_simplification_mode():
 
     assert douyin.build_asr_identity(settings, "verbatim", "off") != \
         douyin.build_asr_identity(settings, "verbatim", "auto")
+
+
+# --- 归一报告要能变成诊断，且 ok 表示"真的改了字"（D49）---
+def test_simplify_diagnostic_reports_real_effect():
+    applied = nt.simplify_diagnostic({"mode": "auto", "applied": True, "changed_segments": 7})
+    degraded = nt.simplify_diagnostic({"mode": "auto", "applied": False,
+                                       "reason": "OpenCC not installed"})
+    disabled = nt.simplify_diagnostic({"mode": "off", "applied": False})
+
+    assert applied["ok"] is True and "已生效" in applied["message"] and applied["changed_segments"] == 7
+    assert degraded["ok"] is False and "降级" in degraded["message"] and "OpenCC" in degraded["message"]
+    assert disabled["ok"] is False and "未启用" in disabled["message"]
+    assert applied["step"] == "simplify"
+
+
+# --- 基线改善可一键落库（显式开关；CI 不应使用）---
+def test_benchmark_write_baseline_updates_file(tmp_path, capsys):
+    import importlib.util
+    from pathlib import Path as _Path
+
+    skill_root = _Path(nt.__file__).parent.parent
+    scripts = skill_root / "scripts"
+    spec = importlib.util.spec_from_file_location("video_learning_test_bench_write", scripts / "run_benchmark.py")
+    benchmark = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(benchmark)
+
+    gold = skill_root / "eval/gold/bilibili-BV1ntah6TEe9.json"
+    hypothesis = skill_root / "agent-harness/cli_anything/video_learning/tests/fixtures/bili1_large.json"
+    baseline_path = tmp_path / "baselines.json"
+    baseline_path.write_text(json.dumps({"cases": [{"case": "bili1-large", "cer_by_mode": {}, "tolerance": 0.005}]}),
+                             encoding="utf-8")
+
+    code = benchmark.main(["--case", f"bili1-large={hypothesis}:{gold}",
+                           "--baseline", str(baseline_path), "--write-baseline"])
+
+    written = json.loads(baseline_path.read_text(encoding="utf-8"))
+    assert code == 0
+    assert written["cases"][0]["cer_by_mode"]                       # 本次结果已落库
+    assert "WROTE baseline" in capsys.readouterr().out
