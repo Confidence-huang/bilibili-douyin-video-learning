@@ -1,6 +1,6 @@
 [project]
 name = "bilibili-video-learning"
-version = "1.12.0"
+version = "1.13.0"
 requires-python = ">=3.12"
 
 # Version floors are not arbitrary. Each `>=` below closes a known advisory or a

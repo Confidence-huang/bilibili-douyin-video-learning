@@ -195,6 +195,14 @@ def main() -> int:
 
 
 # --- 未被任何入口引用的脚本：只报告、不失败（避免半成品悄悄留在仓库里，见 D36）---
+INTENTIONALLY_LIBRARY_ONLY = {
+    "export_anki.py",            # 独立脚本：Obsidian/Anki 侧流程由插件驱动，仓库内无入口是有意为之
+    "vault_synthesize.py",       # 同上：知识库综合，仓库内不接线
+    "vault_ingest.py",
+    "bilibili_deep_archive.py",  # 由插件调用；SKILL.md 里有引用说明，CI 看不到外部调用方
+}
+
+
 def report_unreferenced_scripts() -> list[str]:
     scripts = sorted((SKILL_ROOT / "scripts").glob("*.py"))
     corpus = []
@@ -207,6 +215,8 @@ def report_unreferenced_scripts() -> list[str]:
     blob = "\n".join(corpus)
     orphans = []
     for script in scripts:
+        if script.name in INTENTIONALLY_LIBRARY_ONLY:                             # 有意保留为库的脚本不算游离
+            continue
         # 按**模块名**匹配：`from file_output import ...` 这种导入不会写 .py 后缀
         if blob.count(script.stem) <= 1:                                          # 只出现自己这一处 = 没人引用
             orphans.append(script.name)
