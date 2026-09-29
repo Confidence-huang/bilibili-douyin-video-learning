@@ -16,6 +16,7 @@ from pathlib import Path                                                        
 from typing import NamedTuple                                                    # 参数对象必须能被测试加载器动态加载（见 D16）
 
 import asr_coverage                                                              # 覆盖率校验与局部补转（不依赖任何模型）
+import cuda_runtime                                                              # CUDA 运行时库预加载（见 D23）
 from runtime_output import log                                                   # ASR 进度写 stderr，JSON 调用方只读 stdout。
 
 
@@ -147,6 +148,9 @@ def _run_faster_whisper(
     requested_device: str | None,
     log_prefix: str,
 ) -> tuple[dict, object]:
+    cuda_report = cuda_runtime.prepare_cuda_libraries()                            # 必须在 import ctranslate2 之前预加载运行时库
+    if cuda_report["preloaded"]:
+        log(f"[{log_prefix}] Preloaded CUDA runtime: {len(cuda_report['preloaded'])} libraries")
     from faster_whisper import WhisperModel                                       # CTranslate2 后端的 Whisper 实现
 
     device, compute_type, cuda_devices = _choose_ctranslate2_device(requested_device)  # 决定 cuda/float16 或 CPU/int8
@@ -200,6 +204,9 @@ def _run_faster_whisper(
         "compute_type": compute_type,                                              # GPU 默认 float16
         "cuda_devices": cuda_devices,                                              # 诊断字段，用于确认独显可见
         "device_fallback": device_fallback,                                        # 非空说明 CUDA 不可用、已改用 CPU
+        "cuda_runtime": {"found": sorted(cuda_report["found"].keys()),
+                         "preloaded": cuda_report["preloaded"],
+                         "guidance": cuda_report.get("guidance")},                 # 缺库时给出可执行建议
         "language": getattr(transcription_info, "language", settings.language),     # 模型报告的语言
         "language_probability": getattr(transcription_info, "language_probability", None),  # 语言置信度
         "segments": segments,                                                      # 标准分段正文
