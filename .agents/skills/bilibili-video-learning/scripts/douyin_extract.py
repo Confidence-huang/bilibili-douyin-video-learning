@@ -27,7 +27,7 @@ from pathlib import Path
 from datetime import datetime
 
 import douyin_ssr
-from speech_to_text import transcribe_audio_file                                  # 统一使用 faster-whisper 优先的本机 ASR 入口
+from speech_to_text import TranscriptionSettings, transcribe_audio_file          # 统一使用 faster-whisper 优先的本机 ASR 入口
 from runtime_output import log, sanitize_diagnostics, sanitize_text             # 进度和结构化错误共用脱敏边界。
 from file_output import write_json_atomically, write_text_atomically             # 缓存和最终 Markdown 只原子发布完整文件。
 from media_tools import find_ffmpeg                                              # 所有平台共用同一 FFmpeg 解析规则。
@@ -419,18 +419,25 @@ def extract_audio(video_path: str, wav_path: str) -> str:
 
 # --- Step 4: Transcribe ---
 
-def transcribe(wav_path: str, model_size: str = "small", language: str = "zh") -> tuple[list, str, dict]:
+def transcribe(
+    wav_path: str,
+    model_size: str = "small",
+    language: str = "zh",
+    settings: TranscriptionSettings | None = None,
+) -> tuple[list, str, dict]:
+    active = settings or TranscriptionSettings(model_size=model_size, language=language)  # 未显式传参时沿用历史默认值
     asr_result = transcribe_audio_file(                                           # 首选 faster-whisper + CTranslate2 + cuda/float16
         wav_path,
-        model_size=model_size,
-        language=language,
+        model_size=active.model_size,
+        language=active.language,
         log_prefix="douyin-asr",
+        settings=active,                                                          # 覆盖率兜底与 VAD 开关随 settings 一起生效
     )
     segments = [                                                                  # 保持旧 Douyin Markdown 需要的字段名
         {"start": round(seg["from"], 1), "text": seg["content"]}                  # 旧格式只有开始时间和文本
         for seg in asr_result["segments"]                                         # 共享模块输出标准 from/to/content
     ]
-    full_text = asr_result["text"].strip()                                        # 兼容旧输出里的 full_text
+    full_text = asr_result["text"].strip()                                        # 此处已是补转后的全文，不再是缺字版本
     log(
         f"[douyin] Transcription complete with {asr_result['engine']}: "
         f"{len(segments)} segments, {len(full_text)} chars"
@@ -453,6 +460,7 @@ def extract_douyin(
     impersonate: str = None,
     socket_timeout: int = 60,
     use_cache: bool = True,
+    settings: TranscriptionSettings | None = None,
 ) -> dict:
     """
     Main pipeline: choose download method → extract audio → transcribe.
@@ -462,10 +470,11 @@ def extract_douyin(
     if temp_dir is None:
         temp_dir = os.path.join(tempfile.gettempdir(), "opencode", "douyin")
     os.makedirs(temp_dir, exist_ok=True)
+    active = settings or TranscriptionSettings(model_size=model_size, language=language)  # 转写参数统一由 settings 决定
 
     # Step 1: Use a stable non-identifying folder before the real video ID is known.
-    cache_identity = build_cache_identity(url, model_size, language, download_method, ratio, watermark)
-    cache_key = build_cache_key(url, model_size, language, download_method, ratio, watermark)
+    cache_identity = build_cache_identity(url, active.model_size, active.language, download_method, ratio, watermark)
+    cache_key = build_cache_key(url, active.model_size, active.language, download_method, ratio, watermark)
     work_dir = os.path.join(temp_dir, cache_key)                  # 分享文本不再直接出现在临时目录名中。
     os.makedirs(work_dir, exist_ok=True)
     cache_path = os.path.join(work_dir, "result.json")
@@ -508,7 +517,7 @@ def extract_douyin(
         log(f"[douyin] Using cached audio: {wav_path}")
 
     # Step 3: Transcribe the downloaded or cached audio.
-    segments, full_text, asr_result = transcribe(wav_path, model_size, language)
+    segments, full_text, asr_result = transcribe(wav_path, active.model_size, active.language, settings=active)
 
     # Step 4: Remove heavy media files unless the caller asked to inspect them.
     if not keep_temp:
@@ -527,12 +536,15 @@ def extract_douyin(
         "requested_ratio": downloaded_video.get("requested_ratio"),
         "downloaded_ratio": downloaded_video.get("ratio"),
         "diagnostics": downloaded_video.get("diagnostics", []),
-        "model_size": model_size,
+        "model_size": active.model_size,
         "transcription_engine": asr_result.get("engine"),
         "transcription_device": asr_result.get("device"),
         "transcription_compute_type": asr_result.get("compute_type"),
         "transcription_diagnostics": asr_result.get("diagnostics", []),
-        "language": language,
+        "language": active.language,
+        "audio_duration": asr_result.get("audio_duration"),       # 音频真实时长，用于复核覆盖率分母
+        "coverage_before": asr_result.get("coverage_before"),     # 补转前的覆盖率
+        "coverage_after": asr_result.get("coverage_after"),       # 补转后的覆盖率
         "segments": segments,
         "segment_count": len(segments),
         "full_text": full_text,
@@ -653,6 +665,8 @@ def parse_cli_arguments(argv: list) -> argparse.Namespace:
     parser.add_argument("--proxy", help="Use HTTP/HTTPS/SOCKS proxy for yt-dlp fallback")
     parser.add_argument("--impersonate", help="yt-dlp curl_cffi client, e.g. chrome-110:windows-10")
     parser.add_argument("--socket-timeout", type=int, default=60, help="yt-dlp network timeout in seconds")
+    parser.add_argument("--no-vad", action="store_true", help="Disable VAD silence filtering; keeps speech that VAD would silently drop")
+    parser.add_argument("--no-coverage-retry", action="store_true", help="Skip the automatic re-transcription of suspicious timeline gaps")
     return parser.parse_args(argv)
 
 
@@ -666,6 +680,12 @@ def main(argv: list = None) -> int:
         return 1
 
     language = "en" if args.english else "zh"
+    settings = TranscriptionSettings(                                             # 转写参数在这里定型，缓存身份与转写共用同一份
+        model_size=args.model,
+        language=language,
+        vad_filter=not args.no_vad,                                               # 显式 --no-vad 时不再让 VAD 判断静音
+        coverage_check=not args.no_coverage_retry,                                 # 显式关闭补转时保持纯第一遍结果
+    )
 
     try:
         if args.list_ratios:
@@ -685,6 +705,7 @@ def main(argv: list = None) -> int:
             impersonate=args.impersonate,
             socket_timeout=args.socket_timeout,
             use_cache=not args.no_cache,
+            settings=settings,                                                    # VAD 与覆盖率兜底开关随参数进入转写
         )
     except Exception as exc:
         error_result = {

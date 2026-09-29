@@ -376,6 +376,52 @@ Unable to resolve action `astral-sh/setup-uv@v10`, unable to find version `v10`
 
 ---
 
+## D16. VAD 丢掉的语音必须被检测并局部补转
+
+**决策**：`scripts/speech_to_text.py` 在转写结束后统一做覆盖率校验。
+用 ffmpeg 量出音频总时长和每个 ≥2 秒空档的平均音量，把「空档 + 音量高于 -35 dBFS」判定为被 VAD 误吞的语音，
+再用 `vad_filter=False` 切片补转并并回时间轴；补转结论与判断依据全部写进 `diagnostics`。
+默认开启，`--no-vad` 与 `--no-coverage-retry` 可显式关闭。校验逻辑放在 `scripts/asr_coverage.py`，
+转写引擎通过回调注入，因此这段逻辑在**没有 GPU、没有模型、没有 ffmpeg 的 CI 里也能被完整测试**。
+
+**背景（真实事故）**：一条 4 分 19 秒（259.77 秒）的抖音口播视频，
+`faster-whisper large-v3` + `vad_filter=True` 的第一遍输出在 `196.24 → 201.84s` 出现 5.6 秒空档。
+实测该窗口 `mean_volume = -12.9 dBFS`、峰值触顶 0 dB —— **是响亮的说话声，不是静音**，被 VAD 整段丢弃：
+
+```text
+哪怕别人对他的生活、对他的过往一无所知，大家还是会这么想。
+甚至哪怕是一个所谓成功的男性，但有一天他突然累了、穷了、病了、失去价值了。
+```
+
+关闭 VAD 重跑，该段完整还原（覆盖率 0.9759 → 0.9934）。这是"静默丢正文"——没有异常、没有警告，
+调用方只会觉得"话说得有点跳"。上游同类报告见 faster-whisper issue #1261 / #1270 / discussion #1312。
+
+**为什么不能只用覆盖率阈值**：这条视频补转前的覆盖率是 0.9759，高于任何"看起来正常"的经验线。
+只按比例报警一定会漏掉它；「时间轴空洞 + 实测音量」才是有因果关系的判据，比例只作为诊断信息展示。
+
+**代价与上限**：每个可疑窗口要多付一次 ffmpeg 切片 + 一次短解码。因此设了三个上限：
+一次运行最多补转 5 个窗口、单个窗口不超过 60 秒、**拿不到音量时不补转**（宁可不报，不误报）。
+补转结果进入缓存，同一视频不会重复付这份成本。
+
+**验证方式**：`agent-harness/cli_anything/video_learning/tests/test_asr_coverage.py`
+用真实丢字数据（fixture `fixtures/asr_vad_dropped_speech.json`，180 段真实分段 + 真实时长，不含音频）
+断言只定位到一个 `196.24–201.84s` 空档、补转窗口调用时 `vad_filter=False`、
+补回正文进入 `text`、`diagnostics` 记 `ok: false` 并带上实测音量。
+另外覆盖"静音不补转""预算封顶""超长窗口跳过""重叠区间只算一次"等边界。
+
+**已知取舍**：补转用的窗口解码一律 `vad_filter=False`，理论上存在把音乐当人声的幻听风险；
+缓解手段是"先实测音量、再只补转被判定为响亮的窗口"，而且补回来的文本会与第一遍一样接受人工/笔记阶段复核。
+如果将来引入幻觉检测（D17 之后的工作），应对补转片段一并施加。
+
+**为什么不把参数对象写成 `@dataclass`**：本仓测试用 `importlib` 动态加载脚本且不注册 `sys.modules`，
+`@dataclass` 会在 `sys.modules.get(cls.__module__).__dict__` 处抛 `AttributeError`。
+改用 `typing.NamedTuple`（同样不可变，且有 `_asdict()` 可用于缓存身份）。
+
+**重新评估触发条件**：如果 faster-whisper 修掉 VAD 误判，或换用可调阈值的 VAD 后误判率显著下降，
+可把 `coverage_check` 默认改为关闭；如果补转带来的耗时成为长视频的主要成本，则改为"只报告不补转"。
+
+---
+
 ## 决策索引
 
 | 编号 | 主题 | 是否可推翻 |
@@ -395,3 +441,4 @@ Unable to resolve action `astral-sh/setup-uv@v10`, unable to find version `v10`
 | D13 | 依赖下限必须写明原因 | 可（若改用带注释的锁文件工具） |
 | D14 | 三宿主 interface 清单一致 | 可（若宿主改读 SKILL.md） |
 | D15 | CI action 按各自 tag 策略引用 | 可（若改用 commit SHA） |
+| D16 | VAD 丢字必须检测并局部补转 | 可（若上游修掉 VAD 误判） |
