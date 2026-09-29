@@ -157,3 +157,79 @@ def test_default_obsidian_vault_is_host_portable(monkeypatch):
     monkeypatch.delenv("BILIBILI_OBSIDIAN_VAULT", raising=False)
 
     assert Path(fetch.default_obsidian_vault()) == Path.home() / "Notes"
+
+
+# --- ctranslate2 声称有 CUDA 但实际不可用时必须降级到 CPU ---
+def test_asr_falls_back_to_cpu_when_cuda_is_unusable(monkeypatch, tmp_path):
+    speech_to_text = load_script("speech_to_text")
+    attempts: list[tuple[str, str]] = []  # 记录每次真实尝试的设备与精度。
+
+    class FakeModel:  # 只在 cuda/float16 上失败，模拟缺 libcublas.so.12 的机器。
+        def __init__(self, model_size, device, compute_type):
+            attempts.append((device, compute_type))
+
+        def transcribe(self, audio, **kwargs):
+            if attempts[-1][0] == "cuda":  # 真实机器上错误发生在第一次 encode，而不是模型构造时。
+                def failing_reading():
+                    raise RuntimeError("Library libcublas.so.12 is not found or cannot be loaded")
+                    yield  # pragma: no cover 生成器体只为把异常推迟到迭代时抛出。
+                return failing_reading(), SimpleNamespace(language="zh", language_probability=1.0)
+            reading = [SimpleNamespace(text="正文", start=0.0, end=1.0)]
+            return iter(reading), SimpleNamespace(language="zh", language_probability=1.0)
+
+    monkeypatch.setitem(sys.modules, "faster_whisper", SimpleNamespace(WhisperModel=FakeModel))
+    monkeypatch.setattr(speech_to_text, "_choose_ctranslate2_device", lambda device: ("cuda", "float16", 1))
+    audio = tmp_path / "audio.wav"
+    audio.write_bytes(b"RIFF")
+
+    result = speech_to_text.transcribe_audio_file(audio, settings=speech_to_text.TranscriptionSettings(coverage_check=False))
+
+    assert attempts == [("cuda", "float16"), ("cpu", "int8")]  # 必须先试 CUDA，失败后落到 CPU。
+    assert result["device"] == "cpu"  # 结果不能假装仍在用 GPU。
+    assert result["compute_type"] == "int8"
+    assert "libcublas" in (result["device_fallback"] or "")  # 降级原因必须可见，便于解释速度差异。
+    assert result["diagnostics"][0]["device_fallback"]  # 诊断里同样带上原因。
+    assert result["segments"][0]["content"] == "正文"  # 降级后仍拿到正文，而不是整体失败。
+
+
+# --- 模型构造期就失败也要能降级（CUDA 缺失的另一种表现） ---
+def test_asr_falls_back_when_model_construction_fails(monkeypatch, tmp_path):
+    speech_to_text = load_script("speech_to_text")
+    attempts: list[tuple[str, str]] = []
+
+    class FakeModel:
+        def __init__(self, model_size, device, compute_type):
+            attempts.append((device, compute_type))
+            if device == "cuda":
+                raise RuntimeError("Could not load library libcudnn_ops.so.9")
+
+        def transcribe(self, audio, **kwargs):
+            return iter([SimpleNamespace(text="正文", start=0.0, end=1.0)]), SimpleNamespace()
+
+    monkeypatch.setitem(sys.modules, "faster_whisper", SimpleNamespace(WhisperModel=FakeModel))
+    monkeypatch.setattr(speech_to_text, "_choose_ctranslate2_device", lambda device: ("cuda", "float16", 1))
+    audio = tmp_path / "audio.wav"
+    audio.write_bytes(b"RIFF")
+
+    result = speech_to_text.transcribe_audio_file(audio, settings=speech_to_text.TranscriptionSettings(coverage_check=False))
+
+    assert attempts == [("cuda", "float16"), ("cpu", "int8")]  # 构造期失败同样降级一次。
+    assert result["device"] == "cpu"
+    assert "libcudnn" in (result["device_fallback"] or "")  # 根因保留，不会被兜底错误顶掉。
+
+
+# --- 用户显式要求 CUDA 时不得静默降级 ---
+def test_asr_does_not_silently_downgrade_an_explicit_cuda_request(monkeypatch, tmp_path):
+    speech_to_text = load_script("speech_to_text")
+
+    class FakeModel:
+        def __init__(self, model_size, device, compute_type):
+            raise RuntimeError("Library libcublas.so.12 is not found or cannot be loaded")
+
+    monkeypatch.setitem(sys.modules, "faster_whisper", SimpleNamespace(WhisperModel=FakeModel))
+    monkeypatch.setattr(speech_to_text, "_choose_ctranslate2_device", lambda device: ("cuda", "float16", 1))
+    audio = tmp_path / "audio.wav"
+    audio.write_bytes(b"RIFF")
+
+    with pytest.raises(RuntimeError, match="libcublas"):  # 显式请求的设备失败就是失败，不做意外降级。
+        speech_to_text.transcribe_audio_file(audio, device="cuda", settings=speech_to_text.TranscriptionSettings())
