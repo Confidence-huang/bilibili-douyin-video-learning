@@ -621,7 +621,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return 0
     except Exception as exc:
-        exit_code = exit_contract.classify_failure(exc, (DouyinSSRDownloadError,))   # 与 harness 同一套退出码（D37）
+        exit_code = exit_contract.classify_failure(                                 # 与 harness 同一套退出码（D37）
+            exc, ssr_error_types=(DouyinSSRDownloadError,))                          # 关键字传参：位置含义不同会给错码
         print(json.dumps({
             "error": str(exc),
             "exit_code": exit_code,

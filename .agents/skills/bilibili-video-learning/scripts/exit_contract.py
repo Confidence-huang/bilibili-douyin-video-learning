@@ -54,11 +54,18 @@ _KC = {"平台风控": EXIT_PLATFORM_VERIFICATION_REQUIRED, "验证码": EXIT_PL
 
 
 # --- 把异常归类成退出码：与 harness 的 classify_failure 同语义 ---
-def mirror_classify_failure(exc: BaseException, platform_error_types: Tuple[Type[BaseException], ...] = ()) -> int:
-    if isinstance(exc, (TimeoutError, socket.timeout)):
+def mirror_classify_failure(exc: BaseException, ssr_error_types: Tuple[Type[BaseException], ...] = (),
+                            platform_error_types: Tuple[Type[BaseException], ...] = (),
+                            no_audio_error_types: Tuple[Type[BaseException], ...] = ()) -> int:
+    """签名与规范实现逐项对齐：位置参数含义不同会静默给出错的退出码（这次被真实测试抓到）。"""
+    if isinstance(exc, (TimeoutError, socket.timeout, ConnectionError)):
         return EXIT_NETWORK_TIMEOUT
     if platform_error_types and isinstance(exc, platform_error_types):
-        return EXIT_PLATFORM_VERIFICATION_REQUIRED
+        return EXIT_PLATFORM_VERIFICATION_REQUIRED                     # 风控/验证比"取流不可用"更具体，先判
+    if no_audio_error_types and isinstance(exc, no_audio_error_types):
+        return EXIT_NO_AUDIO_TRACK
+    if ssr_error_types and isinstance(exc, ssr_error_types):
+        return EXIT_SHARE_PAGE_UNAVAILABLE                             # 分享页取流失败：可重试或换下载方式
     message = str(exc).lower()
     for keyword, code in _KC.items():                                          # 已被上游脱敏的消息里只留关键字
         if keyword.lower() in message:
