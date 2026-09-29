@@ -39,6 +39,30 @@ asr = [
 impersonate = [
     "curl-cffi>=0.15.0",
 ]
+# CUDA runtime libraries for the prebuilt CTranslate2 wheel. The WSL driver ships
+# libcuda.so but NOT cuBLAS/cuDNN, so on WSL (and on any host whose CUDA runtime is
+# incomplete) device enumeration succeeds while the first encode() fails with
+# "Library libcublas.so.12 is not found". scripts/cuda_runtime.py preloads these
+# wheels, so the GPU becomes usable without LD_LIBRARY_PATH and without touching the
+# driver. Kept optional: installing them downloads ~700MB and CPU-only users need none
+# of it. See docs/DECISIONS.md D23.
+gpu-cuda12 = [
+    "nvidia-cublas-cu12>=12.4",
+    "nvidia-cudnn-cu12>=9.0",
+    "nvidia-cuda-runtime-cu12>=12.4",
+]
+# Traditional-to-Simplified conversion for --simplify. Pure Python, so it stays out of
+# the main dependency set; without it --simplify auto degrades to "leave text as-is"
+# and records why. See D22.
+zh-normalize = [
+    "opencc-python-reimplemented>=0.1.7",
+]
+# OCR engine for burned-in captions (scripts/hard_subtitle.py). onnxruntime-based and
+# ~15MB of models, so it is optional; the module raises an actionable error when the
+# extra is missing instead of failing obscurely.
+hard-subtitle = [
+    "rapidocr-onnxruntime>=1.3",
+]
 # Windows compatibility profile: the PyTorch-based ASR path, used only after
 # faster-whisper has actually failed (D8). Separate because it pulls torch + CUDA wheels.
 cuda-compat = [

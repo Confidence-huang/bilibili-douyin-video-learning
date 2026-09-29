@@ -644,6 +644,54 @@ Markdown 表格渲染、三种输入格式（规范 JSON / ASR JSON / SRT）、`
 
 ---
 
+## D23. WSL 上"设备可见"不等于"GPU 可用"：运行时库必须被发现并预加载
+
+**决策**：
+1. 新增 `scripts/cuda_runtime.py`：在 `nvidia/*/lib`（Windows 为 `nvidia/*/bin`）里发现 CUDA 运行时库，
+   用 `ctypes.CDLL(..., RTLD_GLOBAL)` **按依赖顺序预加载**（cudart → cublasLt → cublas → cudnn），
+   并把目录写进 `LD_LIBRARY_PATH` 供子进程使用。ASR 入口在 `import ctranslate2` **之前**调用它。
+2. 新增可选依赖组 `gpu-cuda12`（`nvidia-cublas-cu12` / `nvidia-cudnn-cu12` / `nvidia-cuda-runtime-cu12`）。
+   安装器仍然不装 CUDA、不改驱动、不调 sudo——这三个是 pip 轮子，不是驱动。
+3. `doctor status` 从"报告可见性"改成"报告可用性"：同时给出 `devices`、`runtime_libraries`、`usable`
+   和 `guidance`（不可用时直接带上确切的安装命令）。
+
+**背景（真实排查过程，完整记录以免重来）**：在 WSL2（`6.18.26.1-microsoft-standard-WSL2`）上，
+`/dev/dxg` 存在、`/usr/lib/wsl/lib/libcuda.so.1` 在加载器路径里、`ctranslate2.get_cuda_device_count()` 返回 **1**；
+Linux 侧没有 `nvidia-smi`（只有 Windows 侧的 `/mnt/c/Windows/System32/nvidia-smi.exe`）。
+看起来一切正常，但转写会在**第一次 `encode()`** 抛：
+
+```text
+RuntimeError: Library libcublas.so.12 is not found or cannot be loaded
+```
+
+根因：**WSL 驱动只提供 `libcuda.so`（驱动 API），不含 cuBLAS / cuDNN（计算库）**。
+而旧代码与 `doctor` 都只看设备枚举，于是把"看得见"当成了"能用"。
+更麻烦的是失败点在第一次推理而不是模型构造，所以只包住 `WhisperModel(...)` 的 try/except 抓不到它（D19 记录了这一点）。
+
+**两个必须踩对的实现细节**：
+1. **改 `os.environ["LD_LIBRARY_PATH"]` 对当前进程无效**——glibc 只在进程启动时读一次。
+   真正管用的是 `ctypes.CDLL(绝对路径, RTLD_GLOBAL)` 预加载；环境变量只对子进程有意义。两者都做。
+2. **加载顺序有依赖**：cublasLt 依赖 cublas，cudnn 依赖 cudart/cublas。顺序错了会得到
+   "cannot open shared object file"，看起来像"没装"，实际是顺序问题。
+
+**取舍**：三个 nvidia 轮子约 700MB，因此作为**可选**依赖，CPU 用户完全不需要；
+`usable` 也**不参与 `doctor` 的 `ok` 判定**——没有 GPU 仍能用 CPU 跑完，只是慢，
+把可选能力算进整体健康会让"能跑"被误报成"坏了"。
+
+**验证方式**：
+- `tests/test_cuda_runtime.py`：从 `sys.prefix` 推导目录、四个库都能发现、缺库时给出可执行建议、
+  找到但加载失败要报错且不断链、`LD_LIBRARY_PATH` 幂等追加、可用性三态（无设备 / 设备可见但缺库 / 可用）、
+  **ASR 入口的调用顺序必须是 prepare → choose_device → model**、`doctor` 报告 `usable` 与 `guidance`。
+- 真实端到端（本机 WSL2 + RTX 5070 Laptop，命令用 `env -u LD_LIBRARY_PATH` 显式清掉手设变量）：
+  装库前 `device_count=1` 但 `usable=false`，建议里给出 `pip install -e ".[gpu-cuda12]"`；
+  装库后四个库按依赖顺序预加载、`usable=true`；ASR 实际跑在 `cuda/float16`
+  （`device_fallback` 为空、`cuda_runtime.preloaded` 为 4），259.77 秒音频用 `small` 模型 60.5 秒完成（≈4.3× 实时）。
+
+**重新评估触发条件**：如果 WSL 驱动开始自带 cuBLAS/cuDNN，或 ctranslate2 提供官方设备自检 API，
+可删掉预加载逻辑只保留 `doctor` 的可用性判断。
+
+---
+
 ## 决策索引
 
 | 编号 | 主题 | 是否可推翻 |
@@ -670,3 +718,4 @@ Markdown 表格渲染、三种输入格式（规范 JSON / ASR JSON / SRT）、`
 | D20 | 分段只有一个形状 + 保真度显式 | 可（若接入平台字幕来源字段） |
 | D21 | 多源交叉校验代替信任单一模型 | 可（若接入第三个来源） |
 | D22 | 文本归一化显式且可降级 | 可（若引入本地标点模型） |
+| D23 | WSL 上"可见"≠"可用"，运行时库预加载 | 可（若驱动自带或上游提供自检） |
