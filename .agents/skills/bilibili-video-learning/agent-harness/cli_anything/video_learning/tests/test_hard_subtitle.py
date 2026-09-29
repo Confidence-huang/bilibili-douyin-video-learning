@@ -2,9 +2,9 @@
 烧录字幕（硬字幕）OCR 提取的离线契约测试。
 
 这些测试全部不依赖 ffmpeg、不依赖 OCR 引擎、不依赖真实视频：
-抽帧、OCR 与 ffmpeg 进程都是注入点。守住四件事——
-"短卡片不能漏"、"OCR 稳定误认必须可校正"、"必须自己说清可能漏了什么"、
-"产出必须复用既有 SRT/TXT 实现而不是第二份"。
+抽帧、OCR 与 ffmpeg 进程都是注入点。守住五件事——
+"短卡片不能漏"、"OCR 稳定误认必须可校正"、"水印/低置信度只按规则丢弃且绝不误杀短正文"、
+"必须自己说清可能漏了什么"、"产出必须复用既有 SRT/TXT 实现而不是第二份"。
 运行示例：python -m pytest cli_anything/video_learning/tests/test_hard_subtitle.py -v
 """
 from __future__ import annotations  # 测试使用现代类型标注，同时保持 Python 3.10+ 兼容。
@@ -41,9 +41,10 @@ def load_script(name: str):
 
 # --- 造一批字幕带帧：同一个值代表同一张卡片 ---
 def make_samples(values, *, fps: float = 4.0, width: int = 8, height: int = 2):
+    hard = load_hard_subtitle()
     interval = 1.0 / fps  # 采样间隔决定"只出现一帧"的卡片有多长。
     return [
-        load_hard_subtitle().FrameSample(
+        hard.FrameSample(
             timestamp=round(index * interval, 3),
             gray=bytes([value]) * (width * height),  # 整带同值，差异比较的结果就是两个值之差的绝对值。
             width=width,
@@ -51,6 +52,12 @@ def make_samples(values, *, fps: float = 4.0, width: int = 8, height: int = 2):
         )
         for index, value in enumerate(values)
     ]
+
+
+# --- TXT 必须与 normalize_transcript.to_plain_text 的语义一致 ---
+def to_plain_text_reference(texts) -> str:
+    from normalize_transcript import to_plain_text  # 参考实现就是全仓唯一实现。
+    return to_plain_text([{"start": 0.0, "end": 1.0, "text": text} for text in texts])
 
 
 _HARD_SUBTITLE = None  # 同一个测试会话只加载一次，避免重复 exec。
@@ -128,6 +135,108 @@ def test_default_and_custom_corrections_are_applied(tmp_path):
     assert report["corrections_applied"] >= 3  # 命中次数是自检证据。
 
 
+# --- 低置信度：整卡丢弃要计数，行级丢弃不能误杀正文 ---
+def test_low_confidence_lines_are_dropped_and_counted():
+    hard = load_hard_subtitle()
+    samples = make_samples([10, 10])
+
+    cards, report = hard.build_cards(samples, recognize=lambda sample: hard.RecognizedText("低分卡片", 0.2),
+                                     min_confidence=0.5)
+    assert cards == []  # 整卡低分：丢弃，而不是当作正文。
+    assert report["noise_cards_dropped"] == 1
+    assert report["noise_dropped_reasons"] == {"low_confidence": 1}
+    assert report["noise_lines_removed"] == 1  # 丢弃必须留痕，不能静默。
+
+    careful, careful_report = hard.build_cards(
+        samples,
+        recognize=lambda sample: hard.RecognizedText(
+            "更高级\nbV", 0.2, (("更高级", 0.97), ("bV", 0.2)),  # 水印行低分，正文本行高分。
+        ),
+        min_confidence=0.5,
+    )
+    assert [card["text"] for card in careful] == ["更高级"]  # 行级过滤保住正文，而不是整卡一起丢。
+    assert careful_report["noise_cards_dropped"] == 0
+    assert careful_report["noise_line_reasons"] == {"low_confidence": 1}
+
+    trusted, _ = hard.build_cards(samples, recognize=lambda sample: hard.RecognizedText("低分卡片", 0.9),
+                                  min_confidence=0.5)
+    assert [card["text"] for card in trusted] == ["低分卡片"]  # 高于门槛的分数不受影响。
+
+
+# --- 默认噪声表：抖音水印与 ASCII 碎片被删，且与正文同卡时只删噪声行 ---
+def test_default_noise_table_drops_watermark_and_ascii_fragments():
+    hard = load_hard_subtitle()
+    samples = make_samples([10, 20, 30, 40, 50])
+    texts = {
+        10: "VAIKE DKOTIEEKALION",
+        20: "VAIBE",
+        30: "bV-",  # 整片里水印碎片常带一个连字符。
+        40: "bV\n更高级",  # 水印与正文同处一张卡片，这正是真实数据里的形态。
+        50: "正文",
+    }
+
+    cards, report = hard.build_cards(samples, recognize=lambda sample: texts[sample.gray[0]])
+
+    assert [card["text"] for card in cards] == ["更高级", "正文"]  # 只删掉噪声行，正文留下。
+    assert report["noise_cards_dropped"] == 2  # 连续同类噪声合并为一次丢弃（与卡片合并语义一致）。
+    assert report["noise_dropped_reasons"] == {"douyin_watermark": 1, "short_ascii_fragment": 1}
+    assert report["noise_lines_removed"] == 4  # 含同卡内被删的那一行。
+    assert report["noise_line_reasons"]["douyin_watermark"] == 2
+    assert report["noise_line_reasons"]["short_ascii_fragment"] == 2
+
+
+# --- 回归保护：合法的中文短卡片绝不能被"长度"误杀 ---
+def test_legitimate_short_cards_survive_the_noise_filter():
+    hard = load_hard_subtitle()
+    samples = make_samples([10, 20, 30, 40, 50])
+    texts = {10: "更高级", 20: "病了", 30: "OK", 40: "No", 50: "AI"}
+
+    cards, report = hard.build_cards(samples, recognize=lambda sample: texts[sample.gray[0]])
+
+    assert [card["text"] for card in cards] == ["更高级", "病了", "OK", "No", "AI"]  # 2-3 字中文与常见英文词都保留。
+    assert report["noise_cards_dropped"] == 0
+    assert report["noise_lines_removed"] == 0
+
+
+# --- 自定义 --noise-pattern 与内置表叠加；坏正则必须当场失败 ---
+def test_custom_noise_pattern_is_additive_and_validated():
+    hard = load_hard_subtitle()
+    samples = make_samples([10, 20])
+    texts = {10: "VAIKE", 20: "买它买它广告词"}
+
+    patterns = hard.compile_noise_patterns([r"广告词"])
+    cards, report = hard.build_cards(samples, recognize=lambda sample: texts[sample.gray[0]],
+                                     noise_patterns=patterns)
+
+    assert cards == []  # 内置水印表与自定义正则同时生效。
+    assert report["noise_dropped_reasons"] == {"douyin_watermark": 1, "custom:广告词": 1}
+
+    with pytest.raises(ValueError, match="invalid noise pattern"):  # 坏正则不静默，直接失败。
+        hard.compile_noise_patterns(["(unclosed"])
+
+
+# --- CLI：置信度与噪声参数必须真的传进管道并出现在报告里 ---
+def test_cli_passes_confidence_and_noise_options(monkeypatch, tmp_path, capsys):
+    hard = load_hard_subtitle()
+    video = write_placeholder_video(tmp_path)
+
+    monkeypatch.setattr(hard, "sample_band_frames",
+                        lambda path, settings: (make_samples([10, 10, 20, 20]), 1.0))
+    monkeypatch.setattr(hard, "build_recognizer",
+                        lambda: (lambda sample: "广告词" if sample.gray[0] == 10 else "更高级"))
+
+    exit_code = hard.main([str(video), "--min-ocr-confidence", "0.5", "--noise-pattern", "广告词", "--json"])
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+
+    assert exit_code == 0
+    assert payload["settings"]["min_ocr_confidence"] == 0.5
+    assert payload["settings"]["noise_patterns"] == ["广告词"]
+    assert [card["text"] for card in payload["cards"]] == ["更高级"]
+    assert payload["report"]["noise_cards_dropped"] == 1
+    assert payload["report"]["noise_dropped_reasons"] == {"custom:广告词": 1}
+
+
 # --- 完整性自检：短卡片计数、覆盖率与采样风险都要有数字 ---
 def test_completeness_report_counts_short_cards_and_coverage():
     hard = load_hard_subtitle()
@@ -146,6 +255,9 @@ def test_completeness_report_counts_short_cards_and_coverage():
     assert report["caption_coverage_ratio"] == pytest.approx(0.125)
     assert report["sampling_interval_seconds"] == pytest.approx(0.25)
     assert report["short_cards"] == 1
+    assert report["noise_cards_dropped"] == 0  # 过滤字段即使为 0 也必须存在，调用方不用判空。
+    assert report["noise_dropped_reasons"] == {}
+    assert report["noise_lines_removed"] == 0
     assert report["shortest_card_seconds"] == pytest.approx(0.25)
     assert any("更高级" in warning for warning in report["warnings"])  # 采样风险明确写出真实案例。
 
@@ -217,10 +329,10 @@ def test_emit_writes_valid_srt_without_losing_characters(monkeypatch, tmp_path, 
         assert SRT_TIMESTAMP.match(lines[1]), f"非法 SRT 时间戳行：{lines[1]}"
         emitted_texts.append("".join(lines[2:]))  # 去折行后必须与原文本逐字一致。
     assert emitted_texts == [texts[10], texts[40], texts[60]]
-    assert any("\n" in "".join(block.splitlines()[2:]) or len(block.splitlines()) > 3 for block in blocks)
+    assert any(len(block.splitlines()) > 3 for block in blocks), "超长文本必须折行成两行"
 
     txt_text = (output_dir / "hard_subtitle.txt").read_text(encoding="utf-8")
-    assert txt_text == to_plain_text_reference(hard, [texts[10], texts[40], texts[60]])
+    assert txt_text == to_plain_text_reference([texts[10], texts[40], texts[60]])
 
     payload = json.loads((output_dir / "hard_subtitle.json").read_text(encoding="utf-8"))
     assert [card["text"] for card in payload["cards"]] == [texts[10], texts[40], texts[60]]
@@ -228,10 +340,62 @@ def test_emit_writes_valid_srt_without_losing_characters(monkeypatch, tmp_path, 
     assert payload["report"]["short_cards"] == 0
 
 
-# --- TXT 必须与 normalize_transcript.to_plain_text 的语义一致 ---
-def to_plain_text_reference(hard, texts) -> str:
-    from normalize_transcript import to_plain_text  # 参考实现就是全仓唯一实现。
-    return to_plain_text([{"start": 0.0, "end": 1.0, "text": text} for text in texts])
+# --- --emit 与 --json 同时使用时，stdout 必须仍是纯 JSON ---
+def test_json_stdout_stays_parseable_next_to_emit(monkeypatch, tmp_path, capsys):
+    hard = load_hard_subtitle()
+    video = write_placeholder_video(tmp_path)
+    monkeypatch.setattr(hard, "sample_band_frames", lambda path, settings: (make_samples([10, 10]), 1.0))
+    monkeypatch.setattr(hard, "build_recognizer", lambda: (lambda sample: "正文"))
+
+    exit_code = hard.main([str(video), "--emit", "json", "-o", str(tmp_path / "out"), "--json"])
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    payload = json.loads(captured.out)  # "Saved to:" 之类的通知不能混进 stdout。
+    assert [card["text"] for card in payload["cards"]] == ["正文"]
+    assert "Saved to:" in captured.err
+
+
+# --- 真实水印变体：整片 OCR 会产出许多变形，默认表必须都能认出来 ---
+def test_default_noise_table_matches_real_garbled_watermark_variants():
+    hard = load_hard_subtitle()
+    patterns = hard.compile_noise_patterns()
+    variants = [
+        "VAIKE DKOTIEEKALION",   # 2 fps 切片里最干净的一次识别。
+        "MLBEDKOTIEEBALION",     # 整片里同一水印动画的其他帧。
+        "TLBEbKOTIEEBVLION",
+        "MIKEBKOFIEEBALION",
+        "IBEDKOTIEEKVLIOK",
+    ]
+
+    for variant in variants:
+        assert hard.match_noise_label(variant, patterns) == "douyin_watermark"
+
+
+# --- 交叉校验忽略标点差异：否则逗号会淹没同音字（D21 的结论） ---
+def test_cross_check_ignores_punctuation_differences():
+    hard = load_hard_subtitle()
+
+    report = hard.cross_check_with_asr(
+        [{"start": 0.0, "end": 1.0, "text": "最好的血包，真的"}],
+        [{"start": 0.0, "end": 1.0, "text": "最好的血包,真的"}],
+    )
+
+    assert report["verdict"] == "identical"  # 标点体系不同不算内容差异。
+    assert report["similarity"] == 1.0
+
+
+# --- RapidOCR 原始结果：按阅读顺序排序，并且分数必须带出来 ---
+def test_rapidocr_entries_keep_reading_order_and_scores():
+    hard = load_hard_subtitle()
+    result = [
+        [[[0, 20], [10, 20], [10, 30], [0, 30]], "第二行", 0.8],   # 引擎返回顺序不保证是阅读顺序。
+        [[[0, 0], [10, 0], [10, 10], [0, 10]], "第一行", 0.95],
+    ]
+
+    assert hard.rapidocr_result_to_text(result) == "第一行\n第二行"
+    assert hard.rapidocr_entries(result) == [("第一行", 0.95), ("第二行", 0.8)]
+    assert hard.rapidocr_entries(None) == []  # 空白帧不是错误。
 
 
 # --- OCR 引擎缺失：必须是带安装建议的清晰错误 ---
@@ -351,7 +515,31 @@ def test_extract_cards_pipeline_is_fully_injectable(tmp_path):
     assert [card["text"] for card in result["cards"]] == [texts[10], texts[40], texts[60]]
     assert result["report"]["sampled_frames"] == 5
     assert result["report"]["cards"] == 3
+    assert result["completeness"] is result["report"]  # 两个键指向同一份自检报告，调用方按习惯取名。
     assert result["settings"]["fps"] == 4.0  # 参数回写，结论可复核。
     cross_check = result["report"]["cross_check"]
+    assert result["cross_check"] is cross_check  # 结论同时提到顶层，便于直接读取。
     assert cross_check["verdict"] == "both_ways"  # 同音字差异必须被摆出来。
     assert cross_check["replacements"][0]["asr_text"] == "雪"
+
+
+# --- ASR 时间轴既接受分段列表，也接受 --asr-timeline 那种 JSON 路径 ---
+def test_asr_timeline_accepts_a_json_path(tmp_path):
+    hard = load_hard_subtitle()
+    video = write_placeholder_video(tmp_path)
+    timeline = tmp_path / "asr.json"
+    timeline.write_text(json.dumps({"segments": [
+        {"from": 0.0, "to": 1.0, "content": "甲"},
+        {"from": 1.0, "to": 2.0, "content": "乙"},
+    ]}, ensure_ascii=False), encoding="utf-8")
+
+    result = hard.extract_cards(
+        video,
+        hard.HardSubtitleSettings(),
+        frame_sampler=lambda path, settings: (make_samples([10, 10]), 2.0),
+        recognizer=lambda sample: "甲",  # 字幕只有第一句，ASR 多出第二句。
+        asr_timeline=str(timeline),
+    )
+
+    assert result["cross_check"]["verdict"] == "asr_covers_caption"
+    assert [span["text"] for span in result["cross_check"]["asr_only"]] == ["乙"]
