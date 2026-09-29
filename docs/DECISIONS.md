@@ -1237,7 +1237,7 @@ CDP 会话 + 页面内 `fetch`），并通过 `douyin_extract --download-method 
 ## D40. 自己去找 B站 素材做实测：分块标定、前端行为，以及实验抓出的两个缺陷
 
 **决策**：不再等用户提供素材，直接用 B站 排行榜/搜索 API 选真实素材（46.4 分钟数学课 `BV154hD61Ez8`、
-64 秒民谣 `BV1zKZrYAEi8`）跑三组实验，产物落在 `outputs/experiments/`（脚本 + 原始 JSON + SUMMARY.md）。
+64 秒民谣 `BV1zKZrYAEi8`）跑三组实验，产物落在 **`docs/experiments/`**（`outputs/` 被 .gitignore 排除，证据必须放在被跟踪的目录）（脚本 + 原始 JSON + SUMMARY.md）。
 同时**给校验器本身加了回归测试**——因为我在同一轮里连续三次把函数追加到
 `if __name__ == "__main__":` 之后，最后一次还留下两个 `__main__` 块。
 

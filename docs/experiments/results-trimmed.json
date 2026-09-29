@@ -1,0 +1,91 @@
+{
+ "long_video": {
+  "bv": "BV154hD61Ez8",
+  "duration_s": 2783.3,
+  "similarity": 0.9052,
+  "chars_delta": -15,
+  "plain": {
+   "elapsed": 93.5,
+   "segments": 1561,
+   "chars": 13809,
+   "chunked": null,
+   "chunks": 0,
+   "device": "cuda",
+   "diagnostics": [
+    "asr_engine",
+    "asr_coverage"
+   ],
+   "text_sample": "Hello everybody我是神奇小猪基本不等式对于很多初学者来说有一点小难度原因在于咱树上学的就这么一个小试子但是考是考的那题目长的有可能又臭又长很烦人所以今天咱就用这一个视频帮大家从0到1快速上手基本不等式PS本节视频难度基础到终达"
+  },
+  "chunked": {
+   "elapsed": 132.5,
+   "segments": 1512,
+   "chars": 13794,
+   "chunked": true,
+   "chunks": 5,
+   "device": null,
+   "diagnostics": [
+    "asr_chunking"
+   ],
+   "text_sample": "Hello everybody我是神奇小猪基本不等式对于很多初学者来说有一点小难度原因在于咱树上学的就这么一个小试子但是考是考的那题目长的有可能又臭又长很烦人所以今天咱就用这一个视频帮大家从0到1快速上手基本不等式PS本节视频难度基础到终达"
+  }
+ },
+ "frontend_music": {
+  "similarity": 1.0,
+  "with_normalize": {
+   "elapsed": 6.6,
+   "segments": 0,
+   "chars": 0,
+   "chunked": null,
+   "chunks": 0,
+   "device": "cuda",
+   "diagnostics": [
+    "asr_engine",
+    "asr_coverage"
+   ],
+   "text_sample": ""
+  },
+  "without_normalize": {
+   "elapsed": 3.9,
+   "segments": 0,
+   "chars": 0,
+   "chunked": null,
+   "chunks": 0,
+   "device": "cuda",
+   "diagnostics": [
+    "asr_engine",
+    "asr_coverage"
+   ],
+   "text_sample": ""
+  }
+ },
+ "frontend_speech": {
+  "similarity": 1.0,
+  "with_normalize": {
+   "elapsed": 8.1,
+   "segments": 80,
+   "chars": 844,
+   "chunked": null,
+   "chunks": 0,
+   "device": "cuda",
+   "diagnostics": [
+    "asr_engine",
+    "asr_coverage"
+   ],
+   "text_sample": "Hello everybody我是神奇小猪基本不等式对于很多初学者来说有一点小难度原因在于咱树上学的就这么一个小试子但是考是考的那题目长的有可能又臭又长很烦人所以今天咱就用这一个视频帮大家从0到1快速上手基本不等式PS本节视频难度基础到终达"
+  },
+  "without_normalize": {
+   "elapsed": 13.5,
+   "segments": 80,
+   "chars": 844,
+   "chunked": null,
+   "chunks": 0,
+   "device": "cuda",
+   "diagnostics": [
+    "asr_engine",
+    "asr_coverage"
+   ],
+   "text_sample": "Hello everybody我是神奇小猪基本不等式对于很多初学者来说有一点小难度原因在于咱树上学的就这么一个小试子但是考是考的那题目长的有可能又臭又长很烦人所以今天咱就用这一个视频帮大家从0到1快速上手基本不等式PS本节视频难度基础到终达"
+  }
+ }
+}
