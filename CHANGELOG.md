@@ -2,6 +2,27 @@
 
 All notable public changes are recorded here.
 
+## 1.14.0 - 2026-09-29
+
+- **`chunk_length` finally does something.** The setting existed but was never read anywhere in the
+  repository, so every transcription decoded the whole file at once - fine for the longest material
+  measured so far (259.77s), risky for the 30-90 minute lectures that are the main use case, where a
+  single failure means starting over and long contexts drift more. `scripts/asr_chunking.py` now
+  plans overlapping chunks, the pipeline cuts and transcribes them (with chunking explicitly
+  disabled in the sub-calls so it cannot recurse), and the results are shifted back onto one
+  timeline. Both segment and word timestamps are shifted, otherwise words would no longer line up
+  with their segments. See D38.
+- **Off by default, deliberately.** `chunk_length=0` keeps the previous behaviour exactly, and even
+  a direct call to the chunked entry point falls back to a single pass when chunking is not enabled.
+- Overlapping chunks exist so a cut cannot land mid-word; when the overlap makes the next chunk
+  re-transcribe text that is already there, only the first copy is kept and the dropped segment is
+  marked rather than silently discarded.
+- **Two edge cases the tests forced out of the first version**: a 30-minute file at 600s per chunk
+  produced a six-second sliver chunk (now absorbed into its predecessor when the tail is under a
+  quarter of the chunk), and a non-positive chunk length was clamped to five seconds instead of
+  meaning "do not chunk".
+- Tests: **326 passing** offline cases.
+
 ## 1.13.0 - 2026-09-29
 
 - **The standalone CLIs share one exit-code contract.** `scripts/exit_contract.py` lets
