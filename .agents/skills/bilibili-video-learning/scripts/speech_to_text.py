@@ -149,15 +149,20 @@ def _transcribe_with_chunks(audio: Path, settings: TranscriptionSettings, *, mod
                 allow_openai_fallback=allow_openai_fallback,
                 settings=settings._replace(chunk_length=0.0))                      # 子调用不再分块，避免递归
             results.append({"start": item["start"], "segments": chunk_result.get("segments") or [],
-                            "device": chunk_result.get("device"),
+                            "device": chunk_result.get("device"), "engine": chunk_result.get("engine"),
+                            "compute_type": chunk_result.get("compute_type"),
                             "diagnostics": chunk_result.get("diagnostics") or []})
     merged = asr_chunking.merge_chunk_results(results)
     total = sum(len(item.get("segments") or []) for item in results)
     # 真实实验抓到的两个问题：device 必须报"实际用到的设备"，子调用的诊断也不能被吞掉（D40）
     used_device = next((item.get("device") for item in results if item.get("device")), device)
+    used_engine = next((item.get("engine") for item in results if item.get("engine")), None)
+    used_compute = next((item.get("compute_type") for item in results if item.get("compute_type")), None)
     child_diagnostics = [entry for item in results for entry in (item.get("diagnostics") or [])]
     result = {"segments": merged, "text": "".join(str(item.get("content") or "") for item in merged),
-              "duration": duration, "device": used_device, "chunked": True, "chunks": plan,
+              "duration": duration, "device": used_device, "engine": used_engine,
+              "compute_type": used_compute,                                  # 分块产出也要报引擎与精度（否则没人知道用了什么）
+              "chunked": True, "chunks": plan,
               "diagnostics": [asr_chunking.chunking_diagnostic(plan, len(merged), total - len(merged))]
                              + child_diagnostics}
     log(f"[{log_prefix}] chunked transcription done: {len(merged)} segment(s)")

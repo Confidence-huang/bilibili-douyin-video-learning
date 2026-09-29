@@ -45,7 +45,14 @@ run_benchmark.py \
 ```
 
 产出 fixture 是**真实 ASR 结果的裁剪版**（只留分段与上下文，1–5 KB），因此**不需要音频/模型**即可守金标。
-`small` 档位故意不设闸门（它的 CER 本来就高于 0.05），只作对照。
+`small` 档位**不设达标闸门**（它本来就高于 0.05），但**设基线闸门**：
+
+```bash
+run_benchmark.py --case ...(四例)... --baseline eval/baselines.json
+```
+
+即：`large` 要"够好"，**所有档位都不许变差**（改善会打印 `IMPROVED` 并提示更新基线）。
+`eval/baselines.json` 记录每例的 CER 与容差。
 
 ## 金标的证据强度（不要混用）
 

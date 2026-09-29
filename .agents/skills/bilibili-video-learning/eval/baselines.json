@@ -1,0 +1,9 @@
+{
+ "_comment": "金标基线：run_benchmark.py --baseline eval/baselines.json 会在这里比对。劣化超过容差即失败；改善会打印 IMPROVED 并提示更新本文件。",
+ "cases": [
+  {"case": "bili1-large", "cer": 0.0085, "tolerance": 0.005, "note": "B站 30 秒教程，large"},
+  {"case": "bili1-small", "cer": 0.1111, "tolerance": 0.01, "note": "同素材 small：只作为不得劣化的对照，不是达标线"},
+  {"case": "bili2-large", "cer": 0.0051, "tolerance": 0.005, "note": "B站 109 秒劣化素材，large"},
+  {"case": "bili2-small", "cer": 0.2298, "tolerance": 0.02, "note": "同素材 small：对照用"}
+ ]
+}

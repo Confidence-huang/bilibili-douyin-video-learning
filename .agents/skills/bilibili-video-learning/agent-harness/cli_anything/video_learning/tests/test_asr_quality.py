@@ -380,3 +380,41 @@ def test_punctuation_optional_backend_degrades():
                                                          {"start": 2.0, "end": 3.0, "text": "世界"}])
 
     assert mode == "rules" and "。" in text                   # 规则法仍然给出标点
+
+
+# ============================ 基线记录与劣化闸门（D47） ============================
+
+# --- 超出容差算劣化；容差内不算；基线里没有的用例要提醒（新增用例先记录基线）---
+def test_baseline_comparison_flags_regression_and_unknown_case():
+    benchmark = load_script_module("run_benchmark")
+    baseline = {"cases": [{"case": "a", "cer": 0.01, "tolerance": 0.005}, {"case": "b", "cer": 0.02}]}
+
+    problems = benchmark.compare_baseline(
+        [{"case": "a", "cer": 0.012}, {"case": "b", "cer": 0.05}, {"case": "c", "cer": 0.0}], baseline)
+
+    assert not any(item.startswith("a:") for item in problems)        # 容差内
+    assert any(item.startswith("b:") and "劣化" in item for item in problems)
+    assert any(item.startswith("c:") and "基线里没有" in item for item in problems)
+
+
+# --- 改善必须被打印出来并提示更新基线（否则基线会永远停在旧值）---
+def test_baseline_reports_improvement(capsys):
+    benchmark = load_script_module("run_benchmark")
+
+    problems = benchmark.compare_baseline([{"case": "a", "cer": 0.001}],
+                                          {"cases": [{"case": "a", "cer": 0.01, "tolerance": 0.005}]})
+
+    assert problems == []
+    assert "IMPROVED" in capsys.readouterr().out
+
+
+# --- 仓库自带的基线记录必须覆盖四个用例，且容差合理 ---
+def test_shipped_baseline_is_usable():
+    import json
+    from pathlib import Path as _Path
+    root = _Path(__file__).resolve().parents[4]
+    baseline = json.loads((root / "eval/baselines.json").read_text(encoding="utf-8"))
+
+    cases = {item["case"]: item for item in baseline["cases"]}
+    assert {"bili1-large", "bili1-small", "bili2-large", "bili2-small"} <= set(cases)
+    assert all(0 < item["tolerance"] <= 0.05 for item in baseline["cases"])
