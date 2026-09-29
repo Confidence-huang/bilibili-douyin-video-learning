@@ -276,3 +276,67 @@ def test_settings_identity_covers_cache_relevant_parameters():
     assert default_identity != changed_vad  # VAD 开关变化必须改变身份。
     assert default_identity != changed_beam  # beam 变化必须改变身份。
     assert {"model_size", "language", "beam_size", "vad_filter", "coverage_check"} <= set(default_identity)  # 关键字段齐全。
+
+
+# --- VAD 激进程度必须真的传到引擎，而不是留在参数对象里 ---
+def test_vad_parameters_reach_the_engine(monkeypatch, tmp_path):
+    speech_to_text = load_script("speech_to_text")
+    captured: dict = {}  # 保存引擎真实收到的参数。
+
+    class FakeModel:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def transcribe(self, audio, **kwargs):
+            captured.update(kwargs)
+            return iter([]), SimpleNamespace(language="zh", language_probability=1.0)
+
+    monkeypatch.setitem(sys.modules, "faster_whisper", SimpleNamespace(WhisperModel=FakeModel))
+    monkeypatch.setattr(speech_to_text, "_choose_ctranslate2_device", lambda device: ("cpu", "int8", 0))
+    monkeypatch.setattr(asr_coverage, "audio_duration_seconds", lambda path: None)  # 时长未知时跳过覆盖率校验
+    audio = tmp_path / "audio.wav"
+    audio.write_bytes(b"RIFF")
+
+    speech_to_text.transcribe_audio_file(
+        audio,
+        settings=speech_to_text.TranscriptionSettings(vad_min_silence_ms=400, vad_speech_pad_ms=200),
+    )
+
+    assert captured["vad_filter"] is True  # 默认仍开启 VAD
+    assert captured["vad_parameters"] == {"min_silence_duration_ms": 400, "speech_pad_ms": 200}  # 参数真实生效
+
+
+# --- 关闭 VAD 时不应再传 VAD 参数 ---
+def test_vad_parameters_are_omitted_when_vad_is_disabled(monkeypatch, tmp_path):
+    speech_to_text = load_script("speech_to_text")
+    captured: dict = {}
+
+    class FakeModel:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def transcribe(self, audio, **kwargs):
+            captured.update(kwargs)
+            return iter([]), SimpleNamespace(language="zh", language_probability=1.0)
+
+    monkeypatch.setitem(sys.modules, "faster_whisper", SimpleNamespace(WhisperModel=FakeModel))
+    monkeypatch.setattr(speech_to_text, "_choose_ctranslate2_device", lambda device: ("cpu", "int8", 0))
+    monkeypatch.setattr(asr_coverage, "audio_duration_seconds", lambda path: None)
+    audio = tmp_path / "audio.wav"
+    audio.write_bytes(b"RIFF")
+
+    speech_to_text.transcribe_audio_file(audio, settings=speech_to_text.TranscriptionSettings(vad_filter=False))
+
+    assert captured["vad_filter"] is False
+    assert captured["vad_parameters"] is None  # 关掉过滤时不该再传会改变行为的参数
+
+
+# --- VAD 激进程度属于会改变结果的参数，必须进缓存身份 ---
+def test_vad_aggressiveness_changes_the_parameter_identity():
+    speech_to_text = load_script("speech_to_text")
+
+    default_identity = speech_to_text.TranscriptionSettings().identity()
+    aggressive_identity = speech_to_text.TranscriptionSettings(vad_min_silence_ms=400).identity()
+
+    assert default_identity["vad_min_silence_ms"] == 2000  # 默认值与 faster-whisper 保持一致
+    assert default_identity != aggressive_identity  # 调过 VAD 就不能复用旧缓存
