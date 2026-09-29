@@ -1,0 +1,219 @@
+{
+ "_comment": "B站 金标：初稿由 large 生成，逐行用 small 与上下文核对。**由 Agent 判定，未经人工确认**，使用前请注意这一层证据强度；第 12 行明确标注 unresolved。",
+ "id": "bilibili-BV1ntah6TEe9",
+ "platform": "bilibili",
+ "media": {
+  "url": "https://www.bilibili.com/video/BV1ntah6TEe9",
+  "duration_seconds": 30.63,
+  "media_ref": "不入库：用上面的链接重新取流后即可复现"
+ },
+ "reference": {
+  "kind": "agent-verified",
+  "char_count": 117,
+  "paragraphs": [
+   {
+    "start": 0.0,
+    "end": 1.82,
+    "text": "钻玉米地不滑脸教程",
+    "review_status": "keep"
+   },
+   {
+    "start": 1.82,
+    "end": 3.92,
+    "text": "秋衣展开遮住脸",
+    "review_status": "keep"
+   },
+   {
+    "start": 3.92,
+    "end": 5.86,
+    "text": "长袖绕后打成结",
+    "review_status": "keep"
+   },
+   {
+    "start": 5.86,
+    "end": 7.84,
+    "text": "衣服下摆向上翻",
+    "review_status": "keep"
+   },
+   {
+    "start": 7.84,
+    "end": 9.8,
+    "text": "面前衣服向下拉",
+    "review_status": "keep"
+   },
+   {
+    "start": 9.8,
+    "end": 11.5,
+    "text": "微调一下头顶",
+    "review_status": "keep"
+   },
+   {
+    "start": 11.5,
+    "end": 13.56,
+    "text": "确保眼睛能露出来",
+    "review_status": "keep"
+   },
+   {
+    "start": 13.56,
+    "end": 15.68,
+    "text": "最后兜里掏出墨镜",
+    "review_status": "keep"
+   },
+   {
+    "start": 15.68,
+    "end": 18.38,
+    "text": "戴到脸上保护眼睛",
+    "review_status": "keep"
+   },
+   {
+    "start": 18.38,
+    "end": 19.92,
+    "text": "一件秋衣就解决了",
+    "corrected_by": "agent-review",
+    "review_status": "correct"
+   },
+   {
+    "start": 19.92,
+    "end": 21.3,
+    "text": "玉米叶滑脸的问题",
+    "review_status": "keep"
+   },
+   {
+    "start": 21.3,
+    "end": 24.12,
+    "text": "不管是在玉米地里穿行",
+    "review_status": "keep"
+   },
+   {
+    "start": 24.12,
+    "end": 26.34,
+    "text": "还是在里面巴不敢缠",
+    "review_status": "unresolved",
+    "unresolved": true
+   },
+   {
+    "start": 26.34,
+    "end": 28.38,
+    "text": "秋衣往脸上一套",
+    "review_status": "keep"
+   },
+   {
+    "start": 28.38,
+    "end": 30.6,
+    "text": "玉米叶将不会存在",
+    "review_status": "keep"
+   }
+  ],
+  "text": "钻玉米地不滑脸教程秋衣展开遮住脸长袖绕后打成结衣服下摆向上翻面前衣服向下拉微调一下头顶确保眼睛能露出来最后兜里掏出墨镜戴到脸上保护眼睛一件秋衣就解决了玉米叶滑脸的问题不管是在玉米地里穿行还是在里面巴不敢缠秋衣往脸上一套玉米叶将不会存在",
+  "provenance": "初稿 = faster-whisper large / cuda-float16 / balanced；逐行核对 = small 同配置 + 上下文一致性；判定者 = Agent（非人工）"
+ },
+ "review": {
+  "decisions": [
+   {
+    "index": 0,
+    "decision": "keep",
+    "chosen": "玉米地",
+    "basis": "small 作『玉米蒂』；下文两处（L11/S10）与主题（玉米地里穿行）都指向『地』"
+   },
+   {
+    "index": 1,
+    "decision": "keep",
+    "chosen": "遮住脸",
+    "basis": "small 作『蜘蛛脸』，语义不成立"
+   },
+   {
+    "index": 2,
+    "decision": "keep",
+    "chosen": "打成结",
+    "basis": "small 作『打成截』；结绳语义唯一"
+   },
+   {
+    "index": 3,
+    "decision": "keep",
+    "chosen": "原样",
+    "basis": "两个配置逐字一致"
+   },
+   {
+    "index": 4,
+    "decision": "keep",
+    "chosen": "原样",
+    "basis": "两个配置逐字一致"
+   },
+   {
+    "index": 5,
+    "decision": "keep",
+    "chosen": "微调",
+    "basis": "small 作『微条』，不成词"
+   },
+   {
+    "index": 6,
+    "decision": "keep",
+    "chosen": "原样",
+    "basis": "两个配置逐字一致"
+   },
+   {
+    "index": 7,
+    "decision": "keep",
+    "chosen": "原样",
+    "basis": "两个配置逐字一致"
+   },
+   {
+    "index": 8,
+    "decision": "keep",
+    "chosen": "戴到脸上",
+    "basis": "small 作『带到脸上』；眼镜用『戴』"
+   },
+   {
+    "index": 9,
+    "decision": "correct",
+    "chosen": "一件秋衣就解决了",
+    "basis": "small 作『一件秋衣就解决了』；『一见』不成句"
+   },
+   {
+    "index": 10,
+    "decision": "keep",
+    "chosen": "玉米叶",
+    "basis": "small 作『玉米蒂』；主题是玉米叶刮脸"
+   },
+   {
+    "index": 11,
+    "decision": "keep",
+    "chosen": "玉米地",
+    "basis": "small 作『玉米蒂』"
+   },
+   {
+    "index": 12,
+    "decision": "unresolved",
+    "chosen": "还是在里面巴不敢缠",
+    "basis": "两个配置都给出不成词的串（small:『发布感禅』）；缺音频细听，**不擅自定稿**"
+   },
+   {
+    "index": 13,
+    "decision": "keep",
+    "chosen": "原样",
+    "basis": "两个配置逐字一致"
+   },
+   {
+    "index": 14,
+    "decision": "keep",
+    "chosen": "玉米叶将不会存在",
+    "basis": "small 出现复读（『将不不存在』）"
+   }
+  ],
+  "corrected_rows": [
+   9
+  ],
+  "unresolved_rows": [
+   12
+  ],
+  "uncertainty_notes": [
+   "『滑脸』两个配置一致但语义可疑（可能是『划脸/刮脸』），仅凭文本无法判定",
+   "第 12 行两个配置都失败，需要人耳确认；在此之前该行不计入错误统计的上限估计"
+  ],
+  "human_spot_check_focus": [
+   "第 12 行（unresolved）",
+   "『滑脸』是否应为『划脸』或『刮脸』"
+  ]
+ },
+ "known_asr_errors": []
+}

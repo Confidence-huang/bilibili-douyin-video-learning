@@ -1264,6 +1264,35 @@ CDP 会话 + 页面内 `fetch`），并通过 `douyin_extract --download-method 
 
 ---
 
+## D41. B站 金标由 Agent 判定（`agent-verified`），并且**不冒充人工核对**
+
+**决策**：B站 30.63 秒素材 `BV1ntah6TEe9` 的金标完成，`reference.kind = "agent-verified"`——
+**不是** `human-verified`。判定方法、逐行依据与不确定项都写进产物的 `review` 块。
+
+**方法（可复现）**：初稿取 `large`（cuda-float16/balanced），逐行与 `small` 同配置对照，
+再用上下文一致性裁定；每行记录 `decision`（keep/correct/unresolved）、`chosen` 与 `basis`。
+
+**判定结果**：15 行中 **13 行 keep**（其中 4 行两配置逐字一致）、**1 行 correct**
+（`一见秋衣` → `一件秋衣`，small 正确）、**1 行 unresolved**（第 12 行，两配置都给出不成词的串：
+`巴不敢缠` / `发布感禅`，缺音频细听，**不擅自定稿**）。另记一条不确定：
+`滑脸` 两配置一致但语义可疑（可能是 `划脸/刮脸`），仅凭文本无法判定。
+
+**第一次 B站 度量基线**（同一支视频 vs 该金标）：
+
+| 模型 | CER | 覆盖率 | 幻觉 | 时间轴偏移 |
+|---|---|---|---|---|
+| `small` | **0.1111**（13 错 / 117 字） | 0.8501 | **0.0 字/分钟** | 中位 0.52s |
+
+**为什么这比"没有金标"强、比"human-verified"弱**：它让 B站 侧第一次有了可比较的基线
+（此前所有度量都来自抖音），而且判定依据逐行可审计；但它**没有经过人耳确认**，
+因此不确定性被显式记录（`unresolved_rows`、`uncertainty_notes`、`human_spot_check_focus`），
+`kind` 字段也不会假装成人核对。
+
+**重新评估触发条件**：人耳确认第 12 行与 `滑/划` 两处后，把 `kind` 改为 `human-verified`
+并删除不确定项；`agent-verified` 与 `human-verified` 的区别应保持可见，不应被静默合并。
+
+---
+
 ## 决策索引
 
 | 编号 | 主题 | 是否可推翻 |
@@ -1308,3 +1337,4 @@ CDP 会话 + 页面内 `fetch`），并通过 `douyin_extract --download-method 
 | D38 | 长音频分块接线（默认关闭） | 可（需长素材重新标定块长） |
 | D39 | doctor 资产盘点 / 分歧清单进笔记 / 两条校验规则 | 可（doctor 段增长则拆子命令） |
 | D40 | B站 素材实测：分块标定 / 前端行为 / 实验抓出的缺陷 | 可（换更大的显存重测） |
+| D41 | B站 金标 = agent-verified（不冒充人工） | 可（人耳确认后转 human-verified） |
