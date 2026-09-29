@@ -432,3 +432,18 @@ def test_baseline_matches_by_normalization_mode():
 
     assert on == [] and off == []                       # 两种模式都各自在容差内
     assert unknown and "没有模式" in unknown[0]          # 没记录过的模式必须先记录
+
+
+# --- 归一模式必须报告"真的生效"还是"降级"，不能是笼统的 True（D48）---
+def test_simplification_mode_reports_reality():
+    normalize = load_normalize()
+    eval_asr = load_script_module("eval_asr")
+    from pathlib import Path as _Path
+
+    mode = normalize.simplification_mode()
+    expected = "opencc" if normalize.load_simplifier() is not None else "fallback"
+    assert mode == expected and mode in ("opencc", "fallback")
+
+    # 评测报告里的字段必须等于实际模式（此前写死 True，跨环境基线因此对不上）
+    gold = _Path(normalize.__file__).parent.parent / "eval/gold/bilibili-BV1ntah6TEe9.json"
+    assert eval_asr.evaluate(gold, gold)["normalization"]["traditional_to_simplified"] == mode

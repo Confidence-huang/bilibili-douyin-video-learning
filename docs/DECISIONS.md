@@ -1488,6 +1488,34 @@ run_benchmark.py --case "bili1-large=<fixtures>/bili1_large.json:bilibili-BV1nta
 
 ---
 
+## D48. 归一模式必须报告"真的生效"还是"降级"——一个写死的 `True` 卡住了整个基线闸门
+
+**问题**：评测报告里的 `normalization.traditional_to_simplified` 一直是**写死的 `True`**（D33 引入），
+它只表示"尝试过繁简归一"，不区分 **OpenCC 真的生效** 还是 **缺依赖降级**。
+后果：CI（无 OpenCC）与本地（有 OpenCC）**都自称同一模式**，同一个 fixture 的 CER 却分别是
+0.1282 与 0.1111、0.3662 与 0.2298 → 刚建立的基线闸门**永远对不上**，PR 卡住。
+
+**我先后用过三种应对，前两种都是掩盖**：
+1. 放宽容差——会让真实劣化漏过去；
+2. 在 CI 钉住依赖（装 `opencc-python-reimplemented`）——**Ubuntu 修好了、Windows 没好**；
+3. **按模式记录基线**（正确方向），但仍被那个写死的 `True` 挡住。
+
+**决策**：`normalize_transcript.simplification_mode()` 用**公开 API 行为判定**——
+`"opencc" if load_simplifier() is not None else "fallback"`；评测报告写这个值；
+`run_benchmark` 的 `norm` 列透传；`eval/baselines.json` 的 `cer_by_mode` 按真实模式名记录
+（`t2s:opencc+n` / `t2s:fallback+n`）。于是一个用例在不同环境下**各比各的基线**：
+不放宽闸门、不假装同模式、也不把环境差异藏起来。未知模式会失败并要求先记录。
+
+**过程中我自己踩的坑（都是"想当然"）**：把补丁锚点写成 `_simplify`（该文件根本没有这个名字，
+真实 API 是 `load_simplifier`/`simplify_segments`，而 `note["applied"]` 早就在报告"是否生效"了）；
+用 `'import os  # '` 当锚点把 import 插进了**函数内部**（第 54 行），造成模块级 `NameError`；
+还有一次 `$S` 只在 Python 里赋值、bash 里为空，导致路径全错。**教训：补丁脚本要先看清真实 API 与变量作用域。**
+
+**重新评估触发条件**：如果将来引入第二种归一实现（如按需下载字典），
+`simplification_mode()` 应返回实现名而不仅是 `opencc/fallback`。
+
+---
+
 ## 决策索引
 
 | 编号 | 主题 | 是否可推翻 |
@@ -1539,3 +1567,4 @@ run_benchmark.py --case "bili1-large=<fixtures>/bili1_large.json:bilibili-BV1nta
 | D45 | CLI 主路径回归 + B站 第二支金标 | 可（加入 CLI 冒烟测试后重评） |
 | D46 | 模块级 CLI 冒烟测试 + 金标闸门进 CI | 可（模型升级时先调闸门） |
 | D47 | 基线记录（全档位不得劣化）+ 分块产出补引擎字段 | 可（CI 时长紧张则只在 main 跑） |
+| D48 | 归一模式报告真实值（opencc/fallback），基线按模式记录 | 可（出现第二种归一实现时扩展） |

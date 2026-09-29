@@ -184,6 +184,17 @@ def load_simplifier():
         return None
 
 
+
+def simplification_mode() -> str:
+    """繁简归一的**实际**模式（D48）：`opencc` 生效 / `fallback` 降级（缺依赖）。
+
+    为什么必须报告这个值：报告里原先写死的 True 只表示"尝试过"，
+    于是 CI 与本地都自称同一模式、CER 却不同（0.1111 vs 0.1282），
+    基线闸门因此永远对不上——"尝试过"和"真的生效"必须分开。
+    """
+    return "opencc" if load_simplifier() is not None else "fallback"
+
+
 # --- 繁简归一 ---
 def simplify_segments(segments, *, mode: str = "auto", converter=None) -> tuple[list[dict], dict]:
     if mode not in SIMPLIFY_MODES:
