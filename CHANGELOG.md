@@ -2,6 +2,29 @@
 
 All notable public changes are recorded here.
 
+## 1.20.0 - 2026-09-29
+
+- **One command now shows the whole picture.** `scripts/run_benchmark.py` takes repeatable
+  `--case "name=hypothesis.json:gold.json"` arguments, evaluates each against the shared metrics and
+  prints one table with CER, substitutions, deletions, insertions, coverage, hallucination, median
+  timeline offset and punctuation F1. `--max-cer` turns it into a gate that fails the run, which is
+  what CI and pre-release checks need. It evaluates only - it never downloads media or runs ASR.
+  The real table it produced: bili-large CER 0.0085, bili-small 0.1111, douyin-large 0.0187. See D44.
+- **What counts as good enough is now written down.** docs/ACCEPTANCE.md holds the thresholds (CER
+  under 0.05, coverage at least 0.99, hallucination under 0.5 characters per minute, median timeline
+  offset under 1.0s, chunk consistency at least 0.90, with punctuation explicitly not a gate) plus
+  the fixed procedure: store the table before the change, make the change, run it again, and explain
+  any column that got worse - or do not merge.
+- **Punctuation can now use a model, optionally and off by default.**
+  `scripts/punctuate.py` falls back to the rule-based path when the optional backend is absent and
+  reports `mode="rules"` honestly; the new `punctuation` extra installs the model for anyone who
+  wants it. That keeps "should we add a model" a one-line installation choice rather than a rewrite.
+- **Two silent Nones taught a lesson.** The summary script guessed wrong field names twice
+  (hallucination rate, median timeline offset) and both times the result was `None` rather than an
+  error - the most easily misread outcome, since a reader assumes the metric does not exist. Lookups
+  now search nested mappings for semantics (`minute`/`rate`, `median`) and only then give up.
+- Tests: **348 passing** offline cases.
+
 ## 1.19.0 - 2026-09-29
 
 - **Both platforms now pick the model from the device.** The Bilibili gold showed `large` at CER
