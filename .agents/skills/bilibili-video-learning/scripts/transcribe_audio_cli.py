@@ -11,7 +11,9 @@ import sys  # 退出码区分成功与失败，方便调用方重试。
 from pathlib import Path  # 统一处理 Windows 路径与存在性检查。
 
 from runtime_output import log  # 进度写 stderr，保证 stdout 的 JSON 不被污染。
-from speech_to_text import transcribe_audio_file  # 复用 faster-whisper 优先 + openai-whisper 兜底的同一入口。
+import asr_lexicon  # 领域词表（D26）
+import speech_to_text  # 档位定义
+from speech_to_text import TranscriptionSettings, transcribe_audio_file  # 复用 faster-whisper 优先 + openai-whisper 兜底的同一入口。
 
 
 # --- 解析命令行参数 ---
@@ -21,6 +23,11 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--model", default="small", help="faster-whisper 模型名，默认 small")
     parser.add_argument("--language", default="zh", help="语言代码，默认 zh；传 auto 让模型自行检测")
     parser.add_argument("--device", default=None, choices=[None, "auto", "cuda", "cpu"], help="留空或 auto = 自动选 GPU")
+    parser.add_argument("--profile", default="balanced", choices=tuple(speech_to_text.PROFILE_OVERRIDES),
+                        help="fast=批量初筛 / balanced=默认 / quality=关键素材（含定向二次解码）")
+    parser.add_argument("--hotwords", help="额外的领域词（空格或逗号分隔），做解码偏置以修正同音专名")
+    parser.add_argument("--lexicon", action="append", help="词表文件路径，可重复；默认读 references/asr-lexicon.txt")
+    parser.add_argument("--no-coverage-retry", action="store_true", help="关闭可疑空档覆盖率补转")
     return parser.parse_args()
 
 
@@ -33,9 +40,17 @@ def main() -> int:
         return 1
 
     device = None if args.device in (None, "auto") else args.device   # auto 交还给 _choose_ctranslate2_device 探测。
-    log(f"[cli] transcribing {audio.name} with model={args.model} language={args.language}")
+    settings = TranscriptionSettings(
+        model_size=args.model,
+        language=args.language,
+        coverage_check=not args.no_coverage_retry,
+        hotwords=asr_lexicon.build_hotwords(asr_lexicon.load_lexicon(args.lexicon), extra=args.hotwords),
+    )
+    settings = speech_to_text.apply_profile(settings, args.profile)   # 档位覆盖 beam/词级时间戳/二次解码
+    log(f"[cli] transcribing {audio.name} with model={args.model} language={args.language} profile={args.profile}")
     try:
-        result = transcribe_audio_file(audio, model_size=args.model, language=args.language, device=device, log_prefix="cli")
+        result = transcribe_audio_file(audio, model_size=args.model, language=args.language, device=device,
+                                       log_prefix="cli", settings=settings)
     except Exception as exc:                                          # 任何 ASR 失败都收敛成一行可解析错误。
         log(f"[cli] transcription failed: {exc}")
         print(json.dumps({"error": f"{type(exc).__name__}: {exc}"}, ensure_ascii=False), flush=True)

@@ -16,11 +16,12 @@ from pathlib import Path                                                        
 from typing import NamedTuple                                                    # 参数对象必须能被测试加载器动态加载（见 D16）
 
 import asr_coverage                                                              # 覆盖率校验与局部补转（不依赖任何模型）
+import asr_lexicon                                                              # 领域词表（见 D26）
 import cuda_runtime                                                              # CUDA 运行时库预加载（见 D23）
 from runtime_output import log                                                   # ASR 进度写 stderr，JSON 调用方只读 stdout。
 
 
-ASR_PARAMS_VERSION = 1                                                           # 参数默认值变化时递增，让旧缓存放弃而不是复用
+ASR_PARAMS_VERSION = 2                                                           # 参数默认值变化时递增，让旧缓存放弃而不是复用
 
 
 # --- 一次转写任务的全部可调参数 ---
@@ -38,9 +39,34 @@ class TranscriptionSettings(NamedTuple):
     speech_dbfs: float = asr_coverage.DEFAULT_SPEECH_DBFS                          # 高于该音量的空档判定为“有人在说话”
     max_retry_windows: int = asr_coverage.DEFAULT_MAX_RETRY_WINDOWS                # 单次运行的补转窗口预算
     low_confidence_logprob: float = -1.0                                          # 与 whisper 默认 logprob 阈值一致
+    hotwords: str = ""                                                           # 领域词表（D26）：只做解码偏置，不改写输出
+    word_timestamps: bool = False                                                # 词级时间戳：重新分段与帧对齐的前提（D28）
+    profile: str = "balanced"                                                    # fast/balanced/quality，见 apply_profile
+    refine_low_confidence: bool = False                                          # 是否对低置信区间做定向二次解码（D27）
+    normalize_audio: bool = True                                                 # 抽音频时是否做 highpass+loudnorm 净化（D26）
 
     def identity(self) -> dict:
         return {"params_version": ASR_PARAMS_VERSION, **self._asdict()}           # 缓存键只认这份字典，不认调用点默认值
+
+
+# --- 转写档位：按"实测 CER / 覆盖率 / 是否要词级时间轴"打包（数字见 docs/DECISIONS.md D26） ---
+# 真实抖音音频（259.77s）+ 1917 字金标的实测结果：
+#   净化音频 + beam1 + 无词级时间戳 = CER 0.0433（最低）      ← balanced 的默认形态
+#   净化音频 + beam5 + 无词级时间戳 = CER 0.0480、覆盖率最高、漏字最少  ← quality
+#   净化音频 + beam1 + 词级时间戳   = CER 0.0511，但产出词级时间轴      ← timing
+PROFILE_OVERRIDES = {
+    "balanced": {"beam_size": 1, "word_timestamps": False, "refine_low_confidence": False},  # 默认：实测最低 CER
+    "timing": {"beam_size": 1, "word_timestamps": True, "refine_low_confidence": False},     # 要词级时间戳（重新分段/帧对齐）
+    "quality": {"beam_size": 5, "word_timestamps": False, "refine_low_confidence": True},    # 关键素材：最高覆盖率 + 定向重解
+}
+
+
+def apply_profile(settings: "TranscriptionSettings", profile: str) -> "TranscriptionSettings":
+    """按档位覆盖可调项；未知档位抛错而不是静默沿用默认值。"""
+    overrides = PROFILE_OVERRIDES.get(profile)
+    if overrides is None:
+        raise ValueError(f"Unknown profile '{profile}'. Choose one of: {', '.join(PROFILE_OVERRIDES)}")
+    return settings._replace(profile=profile, **overrides)
 
 
 # --- 读取当前环境里的 ASR 引擎版本 ---
@@ -103,7 +129,7 @@ def _choose_ctranslate2_device(requested_device: str | None) -> tuple[str, str, 
 
 
 # --- 把一次 faster-whisper 解码结果整理成统一分段 ---
-def _reading_to_segments(reading) -> list[dict]:
+def _reading_to_segments(reading, *, word_timestamps: bool = True) -> list[dict]:
     segments = []                                                                 # 统一输出成 B站/抖音脚本已有字段名
     for segment in reading:                                                       # faster-whisper 惰性迭代，遍历时才真正解码
         content = segment.text.strip()                                             # 空白段不进入学习材料
@@ -115,8 +141,22 @@ def _reading_to_segments(reading) -> list[dict]:
                 "confidence": _segment_confidence(segment),                        # 平均对数概率，供下游标注不可信区间
                 "no_speech_probability": getattr(segment, "no_speech_prob", None),  # 被判定为静音的概率
                 "compression_ratio": getattr(segment, "compression_ratio", None),   # 异常高通常意味着复读或幻觉
+                "words": _segment_words(segment) if word_timestamps else [],        # 未开启时不写入，避免产出无谓膨胀
             })
     return segments
+
+
+# --- 取一段的词级时间戳（未开启 word_timestamps 时返回空列表） ---
+def _segment_words(segment) -> list[dict]:
+    words = []
+    for word in getattr(segment, "words", None) or []:
+        text = str(getattr(word, "word", "") or "").strip()
+        if not text:
+            continue
+        words.append({"start": round(float(getattr(word, "start", 0.0)), 2),
+                      "end": round(float(getattr(word, "end", 0.0)), 2),
+                      "word": text})
+    return words
 
 
 # --- 取一段的平均对数概率（不同引擎字段可能缺失） ---
@@ -166,6 +206,8 @@ def _run_faster_whisper(
             language=settings.language,                                               # 固定中文可减少自动语言识别开销
             task="transcribe",                                                        # 学习笔记只需要转写，不做翻译
             beam_size=settings.beam_size,                                             # 由 settings 决定，逐字稿场景可调大
+            hotwords=settings.hotwords or None,                                       # 领域词表做解码偏置（D26）
+            word_timestamps=settings.word_timestamps,                                 # 词级时间戳供重新分段（D28）
             vad_filter=settings.vad_filter,                                           # 跳过课堂静音和空白段，减少无效解码
             vad_parameters={                                                          # VAD 的激进程度直接决定会不会丢掉整句话
                 "min_silence_duration_ms": settings.vad_min_silence_ms,                # 小于该长度的静音不切断
@@ -173,7 +215,7 @@ def _run_faster_whisper(
             } if settings.vad_filter else None,                                       # 关闭 VAD 时不应传参
             condition_on_previous_text=settings.condition_on_previous_text,            # 降低长课串词污染
         )
-        return active_model, _reading_to_segments(reading), info                     # 返回模型、第一遍正文与语言信息
+        return active_model, _reading_to_segments(reading, word_timestamps=settings.word_timestamps), info                     # 返回模型、第一遍正文与语言信息
 
     device_fallback = None                                                        # 记录“声称有 CUDA 但实际不可用”的真实原因
     try:
@@ -191,11 +233,12 @@ def _run_faster_whisper(
             str(clip_path),
             language=settings.language,
             task="transcribe",
-            beam_size=settings.beam_size,
+            beam_size=max(settings.beam_size, 5),                                  # 补转是可疑区间，用更强的解码条件
+            hotwords=settings.hotwords or None,                                    # 窗口更短，词表偏置收益更明显
             vad_filter=False,                                                      # 丢字原因不是 VAD（见 D16），这里只是换一种解码条件重试
             condition_on_previous_text=False,
         )
-        return _reading_to_segments(window_reading)
+        return _reading_to_segments(window_reading, word_timestamps=settings.word_timestamps)
 
     result = {
         "engine": "faster-whisper",                                               # 调用方和最终笔记可明确来源
@@ -207,6 +250,9 @@ def _run_faster_whisper(
         "cuda_runtime": {"found": sorted(cuda_report["found"].keys()),
                          "preloaded": cuda_report["preloaded"],
                          "guidance": cuda_report.get("guidance")},                 # 缺库时给出可执行建议
+        "profile": settings.profile,                                               # 档位：fast/balanced/quality
+        "hotwords": asr_lexicon.describe_hotwords(settings.hotwords),               # 只记规模与截断，不记敏感正文
+        "word_timestamps": settings.word_timestamps,                               # 是否产出词级时间戳
         "language": getattr(transcription_info, "language", settings.language),     # 模型报告的语言
         "language_probability": getattr(transcription_info, "language_probability", None),  # 语言置信度
         "segments": segments,                                                      # 标准分段正文
