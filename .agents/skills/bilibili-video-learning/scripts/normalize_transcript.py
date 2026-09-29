@@ -212,23 +212,38 @@ def simplify_segments(segments, *, mode: str = "auto", converter=None) -> tuple[
 
 
 # --- 停顿标点：只在段与段的边界插入，绝不改动段内文字 ---
-def join_with_pause_punctuation(segments, *, sentence_gap_seconds: float = DEFAULT_SENTENCE_GAP_SECONDS) -> str:
-    canonical = normalize_segments(segments)
-    if not canonical:
-        return ""
-    pieces = [canonical[0]["text"]]
-    for previous, current in zip(canonical, canonical[1:]):
-        gap = current["start"] - previous["end"]                                       # 静音长度是唯一可用的句读线索
-        if gap >= sentence_gap_seconds:
-            pieces.append("。" if not pieces[-1].endswith(("。", "！", "？", "，")) else "")
-        elif not pieces[-1].endswith(("。", "！", "？", "，", "、", "：", "；")):
+DEFAULT_CLAUSE_GAP_SECONDS = 0.0       # 0 = 每个分段边界都插标点（实测密度才够，见 D42；不要再抬高）
+SENTENCE_FINAL_PARTICLES = ("吗", "呢", "吧", "啊", "嘛", "呀", "哦", "哪")
+TRAILING_PUNCTUATION = ("。", "，", "、", "；", "：", "？", "！", "…")
+CONJUNCTION_STARTS = ("所以", "但是", "然后", "因为", "而且", "不过", "如果", "其实", "既然", "虽然", "于是", "另外")
+
+
+def join_with_pause_punctuation(segments, *, sentence_gap_seconds: float = DEFAULT_SENTENCE_GAP_SECONDS,
+                                clause_gap_seconds: float = DEFAULT_CLAUSE_GAP_SECONDS) -> str:
+    """按停顿与句法线索插标点（D42）：长停 / 句末语气词 / 连词开头 → 句号，中等停顿 → 逗号，短停不插。
+
+    为什么加句法线索：纯按停顿插标点会把"所以"这种句子开头粘在前一句末尾，
+    读起来仍然是一整段；而中文口播的句末往往带语气词，这两条是**可从文本本身看出**的证据，
+    不需要额外模型（引入标点模型属于可选依赖，见 D42 的取舍）。
+    """
+    pieces: list[str] = []
+    for index, item in enumerate(segments):
+        text = str(item.get("text") or "").strip()
+        if not text:
+            continue
+        pieces.append(text)
+        if index + 1 >= len(segments) or text.endswith(TRAILING_PUNCTUATION):
+            continue                                                          # 已经有标点就不再插
+        next_text = str(segments[index + 1].get("text") or "").strip()
+        gap = float(segments[index + 1].get("start") or 0.0) - float(item.get("end") or 0.0)
+        if (gap >= sentence_gap_seconds or text.endswith(SENTENCE_FINAL_PARTICLES)
+                or next_text.startswith(CONJUNCTION_STARTS)):
+            pieces.append("。")
+        elif gap >= clause_gap_seconds:
             pieces.append("，")
-        pieces.append(current["text"])
-    return "".join(pieces).strip()                                                    # 不插入任何字符到段内，保证可回溯
+    return "".join(pieces)
 
 
-
-# --- 规范形状 -> SRT 字幕 ---
 def to_srt(segments, *, max_line_chars: int = 24) -> str:
     blocks = []
     for index, item in enumerate(normalize_segments(segments), 1):

@@ -4,7 +4,7 @@ from setuptools import find_namespace_packages, setup  # PEP 420 lets multiple c
 
 setup(
     name="cli-anything-video-learning",
-    version="1.17.0",  # Keep in lockstep with pyproject.toml; see docs/DECISIONS.md on version parity.
+    version="1.18.0",  # Keep in lockstep with pyproject.toml; see docs/DECISIONS.md on version parity.
     description="Agent-ready CLI for the local Bilibili and Douyin video-learning Skill",
     packages=find_namespace_packages(include=["cli_anything.*"]),
     install_requires=[

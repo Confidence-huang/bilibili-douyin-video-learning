@@ -224,3 +224,62 @@ def test_empty_hotwords_are_passed_as_none(monkeypatch, tmp_path):
     speech_to_text.transcribe_audio_file(audio, settings=speech_to_text.TranscriptionSettings(coverage_check=False))
 
     assert captured["calls"][0]["hotwords"] is None
+
+
+# ============================ 规则法标点与标点质量（D42） ============================
+
+def load_normalize():
+    import importlib.util
+    from pathlib import Path as _Path
+    scripts = _Path(__file__).resolve().parents[4] / "scripts"
+    spec = importlib.util.spec_from_file_location("video_learning_test_normalize_punct", scripts / "normalize_transcript.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def seg(start, end, text):
+    return {"start": start, "end": end, "text": text}
+
+
+# --- 每个分段边界都必须插标点（实测：抬高阈值会让标点密度不足，F1 从 0.313 掉到 0.033）---
+def test_pause_punctuation_marks_every_boundary():
+    normalize = load_normalize()
+    text = normalize.join_with_pause_punctuation([seg(0.0, 1.0, "第一句"), seg(2.0, 3.0, "第二句"),
+                                                  seg(3.2, 4.0, "半句"), seg(4.1, 5.0, "又是半句")])
+
+    assert text.startswith("第一句。第二句")          # 1 秒停顿 → 句号
+    assert "第二句，半句" in text                     # 短停顿 → 逗号（密度必须保住）
+    assert "半句，又是半句" in text                   # 边界处仍要插
+
+
+# --- 句末语气词与连词开头也要断句（纯靠停顿会把"所以"粘在上一句）---
+def test_punctuation_uses_particles_and_conjunctions():
+    normalize = load_normalize()
+
+    particles = normalize.join_with_pause_punctuation([seg(0.0, 1.0, "这样可以吗"), seg(1.05, 2.0, "可以")])
+    conjunctions = normalize.join_with_pause_punctuation([seg(0.0, 1.0, "前面说完了"), seg(1.02, 2.0, "所以接下来")])
+
+    assert "这样可以吗。可以" in particles           # 语气词结尾 → 句号
+    assert "前面说完了。所以接下来" in conjunctions   # 连词开头 → 上一句收句号
+
+
+# --- 已有标点的段不得重复插 ---
+def test_punctuation_does_not_double_up():
+    normalize = load_normalize()
+    text = normalize.join_with_pause_punctuation([seg(0.0, 1.0, "已经结束了。"), seg(2.0, 3.0, "下一句")])
+
+    assert "。。" not in text
+
+
+# --- 标点质量：窗口内配对算命中；金标无标点时如实返回"不适用"---
+def test_punctuation_scores_window_and_no_reference_marks():
+    import eval_asr
+
+    hit = eval_asr.punctuation_scores("你好，世界。", "你好，世界。")
+    shifted = eval_asr.punctuation_scores("你好世界。", "你好，世界。")
+    absent = eval_asr.punctuation_scores("你好，世界。", "你好世界")
+
+    assert hit["f1"] == 1.0
+    assert shifted["recall"] == 0.5                  # 逗号漏了，句号命中
+    assert absent["f1"] is None and "不适用" in absent["note"]
