@@ -36,6 +36,22 @@
 - 抖音 `auto` 下载在 SSR 失败后进入 yt-dlp fallback，统一 CLI 只有显式 `--transcribe` 才进入 ASR。
 - `--keep-audio` 能传入转写指令并控制清理。
 
+### ASR 覆盖率与设备可用性
+
+- 真实丢字数据（180 段 + 真实时长）只定位到一个 `196.24–201.84s` 空档；开头与结尾的空洞同样能发现。
+- 静音空档不补转、补转窗口带上实测音量、预算封顶、超长窗口跳过、拿不到音量时保守跳过。
+- 补转窗口必须关闭 VAD；补回的正文进入全文并更新覆盖率；显式关闭校验时保持第一遍结果。
+- 重叠或倒置的区间不得把覆盖率算超过 100%。
+- VAD 参数必须真实下传引擎，且在关闭 VAD 时不传参；它们变化必须改变缓存身份。
+- 设备声称可用但实际不能解码时（惰性或构造期失败）降级到 `cpu/int8` 并保留原因；
+  显式 `device="cuda"` 不静默降级；兜底也失败时保留根因错误。
+
+### 退出码契约
+
+- 各类别退出码互不重复，成功码为 0，已有授权码仍为 21。
+- 分享页不可用、网络超时、画质不可用、本地转写失败各自映射到专属码，未分类异常保持通用码。
+- 抖音 `main()` 的退出码与 JSON `exit_code` 一致；B站异常分支保留 2 号兜底；CLI 与后端引用同一常量。
+
 ## E2E Test Plan
 
 ### Workflow: 从任意目录解析来源
@@ -72,7 +88,7 @@
 - Linux CLI Python：`${XDG_DATA_HOME:-$HOME/.local/share}/bilibili-video-learning/runtime/bin/python`
 - Windows CLI Python：`<skill-root>\.venv-gpu\Scripts\python.exe`
 - 安装方式：平台安装器调用 `uv pip install --python <CLI-Python> --no-deps -e <skill-root>/agent-harness`
-- 安装入口：`cli-anything-video-learning` 1.3.3
+- 安装入口：`cli-anything-video-learning` 1.5.0
 - 运行约束：`CLI_ANYTHING_FORCE_INSTALLED=1`，测试不得回退到源码模块
 
 执行命令：
@@ -84,15 +100,22 @@ python -m pytest cli_anything/video_learning/tests -q
 最终结果：
 
 ```text
-61 passed, 1 skipped in 1.16s
+114 passed, 1 skipped in 0.90s
 ```
 
 验收覆盖：
 
-- 61 个离线/安装态测试通过，覆盖安全 yt-dlp 参数、严格分 P、字幕解析、Cookie 风险授权、默认省略全文、诊断脱敏、原子写入、来源身份、抖音 SSR/缓存和跨平台运行时入口。
+- 114 个离线/安装态测试通过，覆盖安全 yt-dlp 参数、严格分 P、字幕解析、Cookie 风险授权、默认省略全文、诊断脱敏、原子写入、来源身份、抖音 SSR/缓存和跨平台运行时入口。
+- 1.5.0 新增三组断言：ASR 覆盖率兜底（`test_asr_coverage.py`，含真实 VAD 丢字 fixture 的 196.24–201.84s 空档、
+  静音不补转、预算封顶、超长窗口跳过、重叠区间只算一次、补转窗口关闭 VAD、VAD 参数真实下传、关闭校验时保持原样）；
+  退出码契约（`test_exit_codes.py`，含抖音 `main()` 的 20/24 码与 JSON 一致性、B站异常分支保留 2 号兜底）；
+  CUDA 不可用时的降级（`test_cross_platform.py`，覆盖惰性解码失败、构造期失败、显式 CUDA 不降级、兜底失败时保留根因）。
 - 轻量 CI 环境跳过唯一要求完整 ASR 运行时的 doctor 测试；默认套件不联网、不下载媒体、不读取浏览器 Cookie，也不启动模型推理。
-- 隔离 Linux 完整安装验收通过：依赖一致、CLI 1.3.3、本地合成 MP4 转 16 kHz 单声道 WAV、doctor 找到外置 runtime、yt-dlp、imageio-ffmpeg、faster-whisper 和 CTranslate2。
+- 隔离 Linux 完整安装验收通过：依赖一致、CLI 1.5.0、本地合成 MP4 转 16 kHz 单声道 WAV、doctor 找到外置 runtime、yt-dlp、imageio-ffmpeg、faster-whisper 和 CTranslate2。
 - Skill Creator 校验通过；Skill Lifecycle Manager 的 Static、Runtime、Behavior 三层验证均通过。
 - Windows CUDA 完整安装与真实 GPU ASR 留给 Windows GitHub Actions 和显式授权的真实硬件 smoke；本地 Linux 验收不冒充 Windows GPU 证据。
+- 1.5.0 的真实端到端复核（不进入离线套件，证据留在本轮记录中）：抖音 259.77 秒音频与 B站 30.6 秒视频
+  在缺 CUDA 运行时的机器上降级到 `cpu/int8` 并成功；补齐 cuBLAS/cuDNN 后同一台机器上
+  `large-v3` + `cuda/float16` 转写 259.77 秒耗时 49.3 秒（5.27× 实时），`device_fallback` 为空。
 
 未执行的平台联网、媒体下载和 GPU ASR smoke：这些检查可能访问站点、下载媒体或占用 GPU，不属于本轮默认离线回归。对应风险仍由 `doctor status`、命令构造测试和后续用户授权的真实视频任务覆盖。
