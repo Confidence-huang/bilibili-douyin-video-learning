@@ -183,11 +183,34 @@ def main() -> int:
     validate_cli_skill_parity()
     validate_version_parity()
     validate_host_manifests()
+    orphans = report_unreferenced_scripts()                                       # 非致命：只提示，不让 CI 变红
+    if orphans:
+        print("NOTE: scripts not referenced by any entry point (consider wiring or removing): "
+              + ", ".join(orphans))
     print(
         f"REPOSITORY_OK: {len(paths)} publishable files passed privacy, Skill, "
         "parity, version, and host-manifest checks"
     )
     return 0
+
+
+# --- 未被任何入口引用的脚本：只报告、不失败（避免半成品悄悄留在仓库里，见 D36）---
+def report_unreferenced_scripts() -> list[str]:
+    scripts = sorted((SKILL_ROOT / "scripts").glob("*.py"))
+    corpus = []
+    for path in SKILL_ROOT.rglob("*"):
+        if path.is_file() and path.suffix in {".py", ".md", ".yaml", ".yml", ".toml", ".json"}:
+            try:
+                corpus.append(path.read_text(encoding="utf-8", errors="replace"))
+            except OSError:
+                continue
+    blob = "\n".join(corpus)
+    orphans = []
+    for script in scripts:
+        # 按**模块名**匹配：`from file_output import ...` 这种导入不会写 .py 后缀
+        if blob.count(script.stem) <= 1:                                          # 只出现自己这一处 = 没人引用
+            orphans.append(script.name)
+    return orphans
 
 
 if __name__ == "__main__":
