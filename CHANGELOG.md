@@ -2,6 +2,34 @@
 
 All notable public changes are recorded here.
 
+## 1.6.1 - 2026-09-29
+
+- **Burned-in caption extraction.** `scripts/hard_subtitle.py` reads the caption band, OCRs
+  only frames whose pixels changed, merges identical neighbours into timestamped cards, and
+  applies a configurable correction table for characters OCR misreads consistently (赡/赠,
+  白/自, 干瘪/干). It reports a completeness self-check - sampled frames, change points, card
+  count, coverage, and how many cards were shorter than 0.5s - because a sampling method
+  cannot prove completeness; at 2fps the 0.4s cards "更高级" and "病了" were lost and the
+  former changes the meaning of its sentence. Default sampling is 4fps. An optional
+  `--asr-timeline` runs a character-level self-check and reports which side is missing text.
+  Local files only - fetching stays in its own module. See D24.
+- **Captions are filtered for noise, never silently.** Real Douyin videos overlay a moving
+  watermark inside the caption band, which OCR reads as text: on a 20s clip it produced 46
+  cards of which 31 were shorter than 0.5s. `--min-ocr-confidence` (default 0.5) drops
+  low-confidence recognitions, and a built-in watermark pattern table plus repeatable
+  `--noise-pattern` regexes drop watermark text and short ASCII fragments. The filters are
+  deliberately based on confidence and configured patterns only - never on card length - so
+  legitimate two-or-three-character cards such as 更高级 and 病了 survive. Every dropped card
+  is counted in the report (`noise_cards_dropped`), and the coverage figure falls honestly
+  rather than being padded.
+- **The Bilibili pipeline now fails loudly.** `transcribe_bilibili.py` and
+  `download_audio.py` printed errors and still exited 0, so an agent had to parse JSON to
+  notice a failure. Both now record `exit_code` (20 when the media could not be fetched, 24
+  when the local ASR failed) and the CLI returns it, matching the Douyin contract. Verified
+  with a real nonexistent BV (exits 20) and a real video with a subtitle track (exits 0).
+  See D18.
+- Tests: 188 passing offline cases (up from 163 at 1.6.0).
+
 ## 1.6.0 - 2026-09-29
 
 - **One canonical segment shape.** Subtitle parsing produced `start/end/text` while ASR
