@@ -19,6 +19,7 @@ import urllib.error
 from urllib.parse import parse_qs, urlparse
 
 from speech_to_text import transcribe_audio_file                                  # 统一使用 faster-whisper 优先的本机 ASR 入口
+import media_tools  # 音频前端滤镜链（D26）
 from runtime_output import EXIT_SHARE_PAGE_UNAVAILABLE, EXIT_TRANSCRIPTION_FAILED, log                                                   # 下载/ASR 进度写 stderr，最终 JSON 留在 stdout。
 from media_tools import find_ffmpeg                                              # 所有平台共用同一 FFmpeg 解析规则。
 
@@ -168,11 +169,13 @@ def download_audio_stream(url, output_path, headers=None):
     # Convert to WAV using ffmpeg
     log("[ffmpeg] Converting to WAV...")
     ffmpeg = find_ffmpeg()
+    filter_chain = media_tools.build_audio_filter_chain()  # 与抖音侧共用同一条前端链（D26）
     result = subprocess.run([
         ffmpeg, "-y", "-i", temp_file,
         "-ac", "1",           # mono keeps ASR input stable and small
-        "-ar", "16000",       # 16kHz is the standard rate expected by Whisper-family ASR
+        "-ar", str(media_tools.SAMPLE_RATE),  # 16kHz is the standard rate expected by Whisper-family ASR
         "-sample_fmt", "s16", # 16-bit signed
+        *(["-af", filter_chain] if filter_chain else []),
         output_path
     ], capture_output=True, text=True, timeout=120)
 

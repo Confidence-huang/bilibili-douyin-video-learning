@@ -26,7 +26,10 @@ import subprocess
 from pathlib import Path
 from datetime import datetime
 
+import asr_lexicon                                                             # 领域词表（D26）
 import douyin_ssr
+import media_tools                                                             # 音频前端滤镜链（D26）
+import speech_to_text                                                          # 档位定义与 settings 构造
 from speech_to_text import (                                                     # 统一使用 faster-whisper 优先的本机 ASR 入口
     TranscriptionSettings,
     installed_engine_versions,
@@ -444,18 +447,20 @@ def choose_downloaded_video(
 
 # --- Step 3: Extract audio ---
 
-def extract_audio(video_path: str, wav_path: str) -> str:
+def extract_audio(video_path: str, wav_path: str, *, normalize: bool = True) -> str:
     ffmpeg = _find_ffmpeg()
+    filter_chain = media_tools.build_audio_filter_chain(normalize=normalize)   # 抖音普遍叠 BGM，先做基础净化（D26）
     cmd = [
         ffmpeg,
         "-i", video_path,
         "-vn",
         "-acodec", "pcm_s16le",
-        "-ar", "16000",
+        "-ar", str(media_tools.SAMPLE_RATE),
         "-ac", "1",
-        "-y",
-        wav_path,
     ]
+    if filter_chain:
+        cmd += ["-af", filter_chain]
+    cmd += ["-y", wav_path]
     result = _run(cmd, timeout=60, desc="Extracting audio")
     if result.returncode != 0:
         raise RuntimeError(f"ffmpeg audio extraction failed:\nSTDERR: {result.stderr[:500]}")
@@ -567,7 +572,7 @@ def extract_douyin(
     video_path = downloaded_video["video_path"]                  # 即使音频缓存存在，也要跟踪刚下载的视频用于清理。
 
     if not os.path.exists(wav_path):
-        extract_audio(video_path, wav_path)
+        extract_audio(video_path, wav_path, normalize=active.normalize_audio)
     else:
         log(f"[douyin] Using cached audio: {wav_path}")
 
@@ -764,6 +769,11 @@ def parse_cli_arguments(argv: list) -> argparse.Namespace:
     parser.add_argument("--proxy", help="Use HTTP/HTTPS/SOCKS proxy for yt-dlp fallback")
     parser.add_argument("--impersonate", help="yt-dlp curl_cffi client, e.g. chrome-110:windows-10")
     parser.add_argument("--socket-timeout", type=int, default=60, help="yt-dlp network timeout in seconds")
+    parser.add_argument("--profile", default="balanced", choices=tuple(speech_to_text.PROFILE_OVERRIDES),
+                        help="Transcription profile: fast (batch triage), balanced (default), quality (adds a targeted re-decode)")
+    parser.add_argument("--hotwords", help="额外的领域词（空格或逗号分隔），做解码偏置以修正同音专名")
+    parser.add_argument("--lexicon", action="append", help="词表文件路径（一行一个词），可重复；默认读取 references/asr-lexicon.txt")
+    parser.add_argument("--no-normalize-audio", action="store_true", help="跳过 highpass+loudnorm 音频前端净化")
     parser.add_argument("--no-vad", action="store_true", help="Disable VAD silence filtering; keeps speech that VAD would silently drop")
     parser.add_argument("--no-coverage-retry", action="store_true", help="Skip the automatic re-transcription of suspicious timeline gaps")
     parser.add_argument("--vad-min-silence-ms", type=int, default=2000, help="VAD: silence shorter than this is not cut (faster-whisper default 2000)")
@@ -791,7 +801,11 @@ def main(argv: list = None) -> int:
         vad_filter=not args.no_vad,                                               # 显式 --no-vad 时不再让 VAD 判断静音
         vad_min_silence_ms=args.vad_min_silence_ms,                                # 调小会让 VAD 更激进，也更容易吞掉整句话
         coverage_check=not args.no_coverage_retry,                                 # 显式关闭补转时保持纯第一遍结果
+        hotwords=asr_lexicon.build_hotwords(                                       # 领域词表：内置 + --lexicon + --hotwords + 视频元数据
+            asr_lexicon.load_lexicon(args.lexicon), extra=args.hotwords),
+        normalize_audio=not args.no_normalize_audio,                               # 音频前端净化开关（D26）
     )
+    settings = speech_to_text.apply_profile(settings, args.profile)                 # 档位最后应用，保证覆盖关系确定
 
     try:
         if args.list_ratios:
