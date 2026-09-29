@@ -2,6 +2,23 @@
 
 All notable public changes are recorded here.
 
+## 1.24.0 - 2026-09-29
+
+- **Transcripts now record whether the traditional-to-simplified conversion actually happened.**
+  `douyin_extract` had been receiving the simplification report and dropping it, so a reader could
+  not tell whether a transcript had been converted, and cross-environment baseline comparisons had
+  no visible explanation for their differences. It is now a `step="simplify"` diagnostic whose `ok`
+  means "characters were really rewritten", with mode, changed-segment count and the fallback reason.
+  See D49.
+- **Baseline improvements can be committed in one command.** Previously an improvement only printed
+  IMPROVED while the recorded value stayed stale, which would eventually turn the baseline into a
+  false pass line. `run_benchmark.py --write-baseline` writes the run's results back; it is off by
+  default and CI must not use it, so evaluation stays read-only.
+- **docs/ACCEPTANCE.md gained the normalisation dimension**, because the same fixture scores 0.1111
+  under t2s:opencc and 0.1282 under t2s:fallback (and 0.2298 against 0.3662 for the other small
+  tier). Any CER figure must now be quoted together with its norm column.
+- Tests: **434 passing** offline cases.
+
 ## 1.23.0 - 2026-09-29
 
 - **Baselines for every tier, not just the good one.** eval/baselines.json records each case's
