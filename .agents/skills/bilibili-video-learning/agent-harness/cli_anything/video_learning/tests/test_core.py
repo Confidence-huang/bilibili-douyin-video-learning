@@ -653,3 +653,13 @@ def test_keep_audio_controls_cleanup(monkeypatch, tmp_path):
     removed = transcribe.bilibili_transcribe("BV1xx411c7mD", output_dir=str(tmp_path), keep_audio=False)
     assert removed["status"] == "ok"
     assert not audio_path.exists()
+
+
+# --- CLI 尾部用到 speech_to_text.resolve_model_size，必须导入**模块本身**（D45）---
+def test_transcribe_bilibili_imports_speech_to_text_module():
+    """v1.19.0 的运行时 NameError：只 from-import 了函数，却调用模块级 resolve_model_size。
+    这条守卫直接盯住那个形态；真实 CLI 已用 BV1Kyas6wEuz 跑通两份配置（见 CHANGELOG）。"""
+    module = load_script("transcribe_bilibili")
+
+    assert hasattr(module, "speech_to_text"), "必须 import speech_to_text（模块），而不是只 from ... import 函数"
+    assert module.speech_to_text.resolve_model_size("auto", cuda_available=False) == ("small", "auto:cpu")

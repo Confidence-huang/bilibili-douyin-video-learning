@@ -59,7 +59,7 @@ def _first(mapping: Dict[str, Any], *keys: str):
 
 def _timeline_median(timeline: Any):
     """时间轴中位：报告里可能存标量，也可能只存偏移列表（打印时才算中位），两种都要兜住。"""
-    scalar = _first(timeline or {}, "median_offset_seconds", "median_offset")
+    scalar = _first(timeline or {}, "median_seconds", "median_offset_seconds", "median_offset")
     if scalar is not None:
         return scalar
     found = _search_number(timeline, ("median",))
@@ -103,7 +103,7 @@ def evaluate_case(case: Dict[str, Any]) -> Dict[str, Any]:
     except Exception:
         hypothesis_text = ""
     character = report.get("character_error_rate") or {}
-    timeline = report.get("timeline") or {}
+    timeline = report.get("timeline_offset") or report.get("timeline") or {}   # 真实键名是 timeline_offset（看过结构才写死）
     return {
         "case": case["case"],
         "cer": character.get("cer"),

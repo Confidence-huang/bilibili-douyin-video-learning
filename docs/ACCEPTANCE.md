@@ -25,6 +25,14 @@ python .agents/skills/bilibili-video-learning/scripts/run_benchmark.py \
 | **标点 F1** | 参考值，**不列入验收** | **0.313**（规则法天花板已量化） | D42：受分段粒度限制 |
 | **长视频分块一致性** | ≥ 0.90 | **0.9052**（46.4 分钟，600s 块） | D40 实测 |
 
+## 多支金标（避免只靠一支素材）
+
+| 金标 | 素材特征 | large CER | small CER | 备注 |
+|---|---|---|---|---|
+| `douyin-7690619057690828986` | 中文口播，259.77 秒 | 0.0187 | 0.0433 | 人工核对 |
+| `bilibili-BV1ntah6TEe9` | 安静的 30 秒教程 | **0.0085** | 0.1111 | agent-verified |
+| `bilibili-BV1Kyas6wEuz` | 109 秒叙述 + 表情包配音 + 音乐 | **0.0051** | 0.2298 | 后半段 22 行 unresolved；**标点抄自 large，故 punct_f1=1.0 是同义反复** |
+
 ## 金标的证据强度（不要混用）
 
 | `reference.kind` | 强度 | 用途 |

@@ -101,6 +101,11 @@
 - 无音轨：用 ffmpeg 现场生成有/无音轨真实文件双向验证；`extract_audio` 抛 `NoAudioTrackError`；
   通用入口返回 27；退出码互不重复。
 
+### CLI 主路径的导入守卫
+
+- `transcribe_bilibili` 必须绑定 `speech_to_text`（模块），并真的能解析一次 `auto`——
+  v1.19.0 就是只 from-import 函数却调用模块属性，导致运行时 NameError（D45）。
+
 ### 跨金标回归与标点可选后端
 
 - 用例说明解析（`名称=产出:金标`，金标可只写文件名）；写错时给明确错误。
