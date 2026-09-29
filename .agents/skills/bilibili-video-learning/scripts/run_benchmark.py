@@ -40,6 +40,7 @@ COLUMNS = ("case", "cer", "sub", "del", "ins", "coverage", "hallucination", "tim
 
 # --- 解析 `名称=产出:金标`，金标允许只写文件名（默认在 eval/gold/ 下找）---
 def _resolve_gold(gold_path: str) -> Path:
+    """金标可以只写文件名（默认在 eval/gold/ 下找），也可以是绝对路径。"""
     candidate = Path(gold_path)
     if candidate.exists() or candidate.is_absolute():
         return candidate
@@ -47,11 +48,14 @@ def _resolve_gold(gold_path: str) -> Path:
 
 
 def parse_case(spec: str) -> Dict[str, Any]:
-    """解析 `名称=产出.json:金标.json`。
+    r"""解析 `名称=产出.json:金标.json`。
 
-    **不能简单地按最后一个冒号切**：Windows 盘符本身带冒号（`C:\...`），
-    两个绝对路径拼在一起时，最后一个冒号可能属于金标路径的盘符 —— 这正是 Windows CI 抓到的 bug。
-    现在的规则：从所有冒号里挑一个能让**两侧都存在文件**的分割点；挑不到才退回最后一个（保持原行为）。
+    **不能简单地按最后一个冒号切**：Windows 盘符本身带冒号（如 `D:\...`），
+    两个绝对路径拼在一起时，最后一个冒号可能属于金标路径的盘符 —— 这正是 Windows CI 抓到的 bug
+    （产出路径被切成 `...bili1_large.json:D`，退出码 2）。
+
+    规则：从所有冒号里挑一个能让**两侧都存在文件**的分割点；挑不到才退回最后一个冒号
+    （文件确实缺失时保持原行为，由调用方报错）。
     """
     if "=" not in spec:
         raise ValueError(f"用例格式应为 名称=产出.json:金标.json，收到 {spec!r}")
@@ -66,7 +70,7 @@ def parse_case(spec: str) -> Dict[str, Any]:
         if hypothesis_path and gold_path and Path(hypothesis_path).exists() and _resolve_gold(gold_path).exists():
             chosen = (hypothesis_path, gold_path)
             break
-    if chosen is None:                                     # 文件还不存在（或都在远端）时退回最后一个冒号
+    if chosen is None:
         index = colons[-1]
         chosen = (rest[:index], rest[index + 1:])
     return {"case": name.strip(), "hypothesis": Path(chosen[0]), "gold": _resolve_gold(chosen[1])}
