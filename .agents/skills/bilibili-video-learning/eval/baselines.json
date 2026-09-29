@@ -1,14 +1,14 @@
 {
  "_comment": "金标基线：run_benchmark.py --baseline eval/baselines.json 比对。劣化超容差即失败；改善打印 IMPROVED。",
- "_environment": "**CER 依赖归一模式**（繁简归一有 OpenCC 走 opencc、缺失则降级）。因此每个用例按模式各记一条 `cer_by_mode`，运行时按本次的 norm 标签取对应基线——这样 Linux 与 Windows、装与不装 zh-normalize 都能各比各的，不需要放宽闸门。未知模式会要求先记录。",
+ "_environment": "键名里的模式来自评测报告的**真实值**（normalize_transcript.simplification_mode()，基于 load_simplifier 是否可用）。**CER 依赖归一模式**（繁简归一有 OpenCC 走 opencc、缺失则降级）。因此每个用例按模式各记一条 `cer_by_mode`，运行时按本次的 norm 标签取对应基线——这样 Linux 与 Windows、装与不装 zh-normalize 都能各比各的，不需要放宽闸门。未知模式会要求先记录。",
  "cases": [
-  {"case": "bili1-large", "cer_by_mode": {"t2s:on+n": 0.0085, "t2s:off+n": 0.0085}, "tolerance": 0.005,
+  {"case": "bili1-large", "cer_by_mode": {"t2s:opencc+n": 0.0085, "t2s:fallback+n": 0.0085}, "tolerance": 0.005,
    "note": "large 档位两模式一致（该产出无繁体字）"},
-  {"case": "bili1-small", "cer_by_mode": {"t2s:on+n": 0.1111, "t2s:off+n": 0.1282}, "tolerance": 0.01,
+  {"case": "bili1-small", "cer_by_mode": {"t2s:opencc+n": 0.1111, "t2s:fallback+n": 0.1282}, "tolerance": 0.01,
    "note": "small 只能作对照，不是达标线"},
-  {"case": "bili2-large", "cer_by_mode": {"t2s:on+n": 0.0051, "t2s:off+n": 0.0051}, "tolerance": 0.005,
+  {"case": "bili2-large", "cer_by_mode": {"t2s:opencc+n": 0.0051, "t2s:fallback+n": 0.0051}, "tolerance": 0.005,
    "note": "同上"},
-  {"case": "bili2-small", "cer_by_mode": {"t2s:on+n": 0.2298, "t2s:off+n": 0.3662}, "tolerance": 0.02,
+  {"case": "bili2-small", "cer_by_mode": {"t2s:opencc+n": 0.2298, "t2s:fallback+n": 0.3662}, "tolerance": 0.02,
    "note": "同素材 small 对照"}
  ]
 }

@@ -26,6 +26,7 @@ import difflib  # 字符级对齐是 CER 与幻觉判定的共同基础
 import json  # 报告输出为 JSON，便于与历史数字对比
 import os  # 批量模式遍历目录
 import re  # 规范化与 SRT 解析
+import normalize_transcript  # 取真实的归一模式（opencc / fallback，见 D48）
 import statistics  # 时间轴偏移取中位数，避免个别段位拖偏结论
 import sys  # 退出码区分"指标超标"与"输入有问题"
 from pathlib import Path  # 统一处理 Windows/WSL 路径
@@ -51,7 +52,6 @@ _SIMPLIFIER_CACHE: List[Any] = []
 def _simplify(text: str) -> str:
     if not _SIMPLIFIER_CACHE:
         try:
-            import normalize_transcript
 
             _SIMPLIFIER_CACHE.append(normalize_transcript.load_simplifier())
         except Exception:
@@ -310,7 +310,8 @@ def evaluate(hypothesis_path: str | Path, gold_path: str | Path, *, elapsed_seco
         "timeline_offset": timeline_offset(hypothesis_segments, gold_segments),  # 真对齐后的时间差，不是段边界差
         "punctuation": punctuation_scores(hypothesis_text, reference_text),   # 标点质量（D42）
         "real_time_factor": None,
-        "normalization": {"numerals": True, "traditional_to_simplified": True,
+        "normalization": {"numerals": True,
+                          "traditional_to_simplified": normalize_transcript.simplification_mode(),
                           "note": "数字写法与繁简差异不计入 CER；要严格口径请用 --keep-numerals"},
     }
     if elapsed_seconds and duration:

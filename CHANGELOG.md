@@ -21,7 +21,16 @@ All notable public changes are recorded here.
 - **A CI mistake of mine, caught by running it**: the new baseline step was inserted into both jobs
   with the PowerShell body, because my platform detection keyed off the wrong line. The ubuntu job
   now runs the bash form and the windows job the PowerShell form.
-- Tests: **430 passing** offline cases.
+- **A hardcoded `True` was blocking the whole baseline gate.** The report's
+  `traditional_to_simplified` field meant "normalisation was attempted" rather than "OpenCC actually
+  ran", so CI and a local machine both claimed the same mode while producing different CER for the
+  same fixture - 0.1282 against 0.1111, 0.3662 against 0.2298 - and the newly added baseline gate
+  could never agree. Loosening tolerances and pinning the dependency in CI were both attempts at
+  covering it up (the second fixed Ubuntu and not Windows). The report now carries the real mode,
+  determined behaviourally from `load_simplifier()`, and baselines are keyed by that mode
+  (`t2s:opencc+n` / `t2s:fallback+n`), so each environment compares against its own recorded
+  numbers - no widened tolerance, no pretending, no hidden environment difference. See D48.
+- Tests: **432 passing** offline cases.
 
 ## 1.22.0 - 2026-09-29
 
