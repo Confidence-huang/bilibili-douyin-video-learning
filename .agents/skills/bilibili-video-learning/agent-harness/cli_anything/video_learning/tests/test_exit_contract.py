@@ -77,7 +77,8 @@ def test_platform_error_types_win():
     class PlatformRiskError(RuntimeError):
         pass
 
-    code = exit_contract.mirror_classify_failure(PlatformRiskError("未提及关键字"), (PlatformRiskError,))
+    code = exit_contract.mirror_classify_failure(PlatformRiskError("未提及关键字"),
+                                                 platform_error_types=(PlatformRiskError,))
 
     assert code == exit_contract.EXIT_PLATFORM_VERIFICATION_REQUIRED
 

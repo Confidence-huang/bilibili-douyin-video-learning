@@ -352,9 +352,11 @@ def test_douyin_ssr_failure_remains_machine_readable(monkeypatch, capsys):
     captured = capsys.readouterr()
     payload = json.loads(captured.out)
 
-    assert exit_code == 1
+    # 退出码改由契约分类（见 D37）：平台取流异常 → 20 分享页/取流路径不可用
+    assert exit_code == douyin_ssr.exit_contract.EXIT_SHARE_PAGE_UNAVAILABLE
     assert captured.err == ""
     assert payload["error"] == "fixture public page failure"
+    assert payload["exit_code"] == exit_code                                          # JSON 与返回码必须一致
     assert payload["diagnostics"][0]["step"] == "fetch_share_page"
 
 
