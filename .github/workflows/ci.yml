@@ -60,6 +60,7 @@ jobs:
           .ci-venv/bin/python -m pytest -q "$skill_root/agent-harness/cli_anything/video_learning/tests"
       - name: Cross-gold benchmark gate (real golds, committed hypotheses)
         run: |
+          skill_root="$PWD/.agents/skills/bilibili-video-learning"   # 本步骤自包含：不依赖别处定义的变量
           .ci-venv/bin/python "$skill_root/scripts/run_benchmark.py" \
             --case "bili1-large=$skill_root/agent-harness/cli_anything/video_learning/tests/fixtures/bili1_large.json:bilibili-BV1ntah6TEe9.json" \
             --case "bili2-large=$skill_root/agent-harness/cli_anything/video_learning/tests/fixtures/bili2_large.json:bilibili-BV1Kyas6wEuz.json" \
@@ -125,6 +126,7 @@ jobs:
           .\.ci-venv\Scripts\python.exe -m pytest -q "$skillRoot\agent-harness\cli_anything\video_learning\tests"
       - name: Cross-gold benchmark gate (real golds, committed hypotheses)
         run: |
+          $skillRoot = Join-Path $PWD ".agents/skills/bilibili-video-learning"   # 本步骤自包含
           .\.ci-venv\Scripts\python.exe "$skillRoot\scripts\run_benchmark.py" `
             --case "bili1-large=$skillRoot\agent-harness\cli_anything\video_learning\tests\fixtures\bili1_large.json:bilibili-BV1ntah6TEe9.json" `
             --case "bili2-large=$skillRoot\agent-harness\cli_anything\video_learning\tests\fixtures\bili2_large.json:bilibili-BV1Kyas6wEuz.json" `
