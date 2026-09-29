@@ -2,6 +2,24 @@
 
 All notable public changes are recorded here.
 
+## 1.17.0 - 2026-09-29
+
+- **Bilibili finally has a gold set, and it says who verified it.** The 30.63s sample
+  BV1ntah6TEe9 was drafted with large and checked line by line against small plus context
+  consistency. Thirteen of fifteen rows were kept (four of them identical in both configurations),
+  one was corrected (一见秋衣 to 一件秋衣, where small was right), and one is explicitly
+  `unresolved`: both configurations produced word salad there and no audio listening was done, so
+  it is not being guessed at. A second uncertainty is recorded rather than hidden - both
+  configurations agree on 滑脸, which is semantically suspicious (划脸/刮脸), and text alone
+  cannot settle it. See D41.
+- **`reference.kind` is `agent-verified`, deliberately not `human-verified`.** The method, the
+  per-row basis, the unresolved rows and what a human should spot-check all live in the artifact,
+  so the strength of the evidence is visible instead of implied.
+- **First Bilibili baseline**, measured against that gold: `small` scores CER **0.1111** (13 errors
+  over 117 characters), coverage 0.8501, hallucination 0.0 characters/minute, median timeline
+  offset 0.52s. Until now every measurement in this repository came from the Douyin material.
+- Tests: **336 passing** offline cases.
+
 ## 1.16.0 - 2026-09-29
 
 - **First real 30+ minute calibration, on material found in the wild.** A 46.4 minute Bilibili

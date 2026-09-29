@@ -37,6 +37,17 @@
 > ⚠️ 方向陷阱：`difflib` 里 `a=假设, b=参考`，所以 `insert` 是**漏字**、`delete` 是**多字**。
 > `edit_operations()` 已显式翻译一次，并在文档里写明，避免再次搞反（曾经把"漏掉的金标文字"报成"幻觉"）。
 
+## 金标的证据强度（务必区分）
+
+| `reference.kind` | 含义 | 可用性 |
+|---|---|---|
+| `semi-automatic-draft` | ASR 初稿，未核对 | 只能做 A/B 参考，**不是验收基准** |
+| `agent-verified` | Agent 逐行对照第二配置与上下文后判定，依据与不确定项都记录在案 | 可作为**基线**比较；不确定行已显式标注 |
+| `human-verified` | 人工（含人耳）确认 | 验收基准 |
+
+`eval/gold/douyin-7690619057690828986.json` 是人工核对过的；`eval/gold/bilibili-BV1ntah6TEe9.json`
+是 **agent-verified**，其中第 12 行 `unresolved`、`滑/划` 一处存疑——**不要把两者当成同一强度**。
+
 ## 制作新的金标（半自动）
 
 ```bash
