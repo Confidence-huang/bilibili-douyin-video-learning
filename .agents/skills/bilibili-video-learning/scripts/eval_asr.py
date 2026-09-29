@@ -65,10 +65,44 @@ def _simplify(text: str) -> str:
         return text
 
 
+CN_DIGITS = {"零": 0, "〇": 0, "一": 1, "二": 2, "两": 2, "三": 3, "四": 4, "五": 5,
+             "六": 6, "七": 7, "八": 8, "九": 9}
+CN_UNITS = {"十": 10, "百": 100, "千": 1000}
+CN_BIG_UNITS = {"万": 10000, "亿": 100000000}
+NUMERAL_RUN = re.compile(r"[零〇一二两三四五六七八九十百千万亿]{1,12}")
+
+
+# --- 中文数字 → 阿拉伯数字：'六'与'6'、'一百'与'100' 不是识别错误，只是写法不同 ---
+def _cn_run_to_int(run: str) -> str:
+    total = section = number = 0
+    for char in run:
+        if char in CN_DIGITS:
+            number = CN_DIGITS[char]
+        elif char in CN_UNITS:
+            unit = CN_UNITS[char]
+            if number == 0:
+                number = 1                                   # "十五" = 15 而不是 5
+            section += number * unit
+            number = 0
+        elif char in CN_BIG_UNITS:
+            section = (section + number) * CN_BIG_UNITS[char]
+            total += section
+            section = number = 0
+        else:
+            return run                                       # 出现未预期字符就原样保留
+    return str(total + section + number)
+
+
+def normalize_numerals(text: str) -> str:
+    return NUMERAL_RUN.sub(lambda match: _cn_run_to_int(match.group()), text or "")
+
+
 # --- 规范化：只留下会被人工校对的字符 ---
-def normalize_text(text: str, *, simplify: bool = True) -> str:
+def normalize_text(text: str, *, simplify: bool = True, numerals: bool = True) -> str:
     cleaned = (text or "").translate(FULLWIDTH)
     cleaned = CJK_LATIN_DIGITS.sub("", cleaned)
+    if numerals:                                             # 数字写法差异不该计入 CER（见 D33）
+        cleaned = normalize_numerals(cleaned)
     return _simplify(cleaned) if simplify else cleaned
 
 
@@ -251,7 +285,7 @@ def timeline_offset(hypothesis: List[Dict[str, Any]], reference: List[Dict[str, 
 
 # --- 把一次评测的输入、输出与耗时汇总成一份报告 ---
 def evaluate(hypothesis_path: str | Path, gold_path: str | Path, *, elapsed_seconds: Optional[float] = None,
-             min_run: int = DEFAULT_MIN_RUN) -> Dict[str, Any]:
+             min_run: int = DEFAULT_MIN_RUN, numerals: bool = True) -> Dict[str, Any]:
     gold_payload = json.loads(Path(gold_path).read_text(encoding="utf-8"))
     gold_segments = (gold_payload.get("reference", {}).get("paragraphs")
                      if isinstance(gold_payload, dict) else None) or segments_from_payload(gold_payload)
@@ -264,8 +298,8 @@ def evaluate(hypothesis_path: str | Path, gold_path: str | Path, *, elapsed_seco
     reference_text = (gold_payload.get("reference", {}).get("text") if isinstance(gold_payload, dict) else "") \
         or "".join(segment.get("text", "") for segment in gold_segments)
 
-    normalized_hypothesis = normalize_text(hypothesis_text)
-    normalized_reference = normalize_text(reference_text)
+    normalized_hypothesis = normalize_text(hypothesis_text, numerals=numerals)
+    normalized_reference = normalize_text(reference_text, numerals=numerals)
     report = {
         "gold_id": gold_payload.get("id") if isinstance(gold_payload, dict) else Path(gold_path).stem,
         "platform": gold_payload.get("platform") if isinstance(gold_payload, dict) else None,
@@ -275,6 +309,8 @@ def evaluate(hypothesis_path: str | Path, gold_path: str | Path, *, elapsed_seco
         "coverage": timeline_coverage(hypothesis_segments, duration),
         "timeline_offset": timeline_offset(hypothesis_segments, gold_segments),  # 真对齐后的时间差，不是段边界差
         "real_time_factor": None,
+        "normalization": {"numerals": True, "traditional_to_simplified": True,
+                          "note": "数字写法与繁简差异不计入 CER；要严格口径请用 --keep-numerals"},
     }
     if elapsed_seconds and duration:
         report["real_time_factor"] = round(float(elapsed_seconds) / float(duration), 3)
@@ -327,6 +363,8 @@ def main() -> int:
     parser.add_argument("--gold-set", default=str(SCRIPT_DIR.parent / "eval" / "gold"), help="批量：金标目录")
     parser.add_argument("--elapsed-seconds", type=float, help="本次转写耗时，用于计算 RTF")
     parser.add_argument("--min-run", type=int, default=DEFAULT_MIN_RUN, help="多长的插入片段才算幻觉（默认 2 字）")
+    parser.add_argument("--keep-numerals", action="store_true",
+                        help="严格口径：不把中文数字与阿拉伯数字视为等价（默认视为等价，见 D33）")
     parser.add_argument("--json", action="store_true", help="输出 JSON 而不是 Markdown")
     parser.add_argument("-o", "--output", help="把报告写到文件")
     args = parser.parse_args()
@@ -336,7 +374,8 @@ def main() -> int:
         payload: Any = reports
         text = "\n".join(render_markdown(report) for report in reports) or "没有匹配到任何金标"
     elif args.hypothesis and args.gold:
-        report = evaluate(args.hypothesis, args.gold, elapsed_seconds=args.elapsed_seconds, min_run=args.min_run)
+        report = evaluate(args.hypothesis, args.gold, elapsed_seconds=args.elapsed_seconds, min_run=args.min_run,
+                          numerals=not args.keep_numerals)
         payload, text = report, render_markdown(report)
     else:
         parser.error("需要 --hypothesis 与 --gold，或 --hypothesis-dir 与 --gold-set")

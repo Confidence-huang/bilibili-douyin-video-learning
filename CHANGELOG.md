@@ -2,6 +2,30 @@
 
 All notable public changes are recorded here.
 
+## 1.9.0 - 2026-09-29
+
+- **Semi-automatic gold sets.** `scripts/eval_gold_draft.py` turns an ASR draft into a gold
+  draft plus a human review worksheet: it flags low-confidence paragraphs, high-compression
+  (repetition/hallucination) paragraphs and paragraphs where two decode configurations
+  disagree, so a reviewer checks the marked rows instead of every sentence. The product says
+  what it is - `reference.kind = "semi-automatic-draft"` - and only becomes a benchmark after a
+  human flips it to `human-verified`. See D33.
+- **The first real worksheet exposed a usability defect and it is fixed**: on the 30.63s
+  Bilibili sample (large vs small similarity 0.8632) the list flagged 15 of 15 paragraphs, which
+  is the same as having no priority at all. Flags are now ranked
+  (repetition > low confidence > substantive disagreement > minor disagreement), single-character
+  differences are not treated as substantive, and the list is capped at 30% of paragraphs
+  (minimum 8) while still reporting the true total. That sample now shows 8 rows instead of 15.
+- **Numeral style no longer counts as a recognition error.** Chinese numerals are normalised
+  before scoring (`六`≡`6`, `一百`≡`100`, `四十五岁`≡`45岁`); on the Douyin gold this moves CER from
+  0.0214 to **0.0187** (41 to 36 errors) - the difference was exactly the numeral spellings, not
+  misrecognition. `--keep-numerals` restores the strict comparison, and the report states which
+  convention was used. See D33.
+- First Bilibili gold draft shipped: `eval/gold/bilibili-BV1ntah6TEe9.draft.json` with
+  `eval/worksheets/bilibili-BV1ntah6TEe9.md`, covering a 30.63s oral video (large: 15 paragraphs,
+  coverage 0.999, cuda). It awaits the human pass described in the worksheet.
+- Tests: **291 passing** offline cases.
+
 ## 1.8.0 - 2026-09-29
 
 - **Douyin fetch through a real browser context, implemented in this repository.** The

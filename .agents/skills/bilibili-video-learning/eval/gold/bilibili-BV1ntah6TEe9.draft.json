@@ -1,0 +1,279 @@
+{
+ "_comment": "半自动金标草稿：初稿来自 ASR，未经人工逐句核对；核对完成前不要当作验收基准。",
+ "id": "bilibili-BV1ntah6TEe9",
+ "platform": "bilibili",
+ "media": {
+  "url": "https://www.bilibili.com/video/BV1ntah6TEe9",
+  "duration_seconds": 30.63,
+  "media_ref": "不入库：用上面的链接重新取流后即可复现"
+ },
+ "reference": {
+  "kind": "semi-automatic-draft",
+  "char_count": 117,
+  "paragraphs": [
+   {
+    "start": 0.0,
+    "end": 1.82,
+    "text": "钻玉米地不滑脸教程"
+   },
+   {
+    "start": 1.82,
+    "end": 3.92,
+    "text": "秋衣展开遮住脸"
+   },
+   {
+    "start": 3.92,
+    "end": 5.86,
+    "text": "长袖绕后打成结"
+   },
+   {
+    "start": 5.86,
+    "end": 7.84,
+    "text": "衣服下摆向上翻"
+   },
+   {
+    "start": 7.84,
+    "end": 9.8,
+    "text": "面前衣服向下拉"
+   },
+   {
+    "start": 9.8,
+    "end": 11.5,
+    "text": "微调一下头顶"
+   },
+   {
+    "start": 11.5,
+    "end": 13.56,
+    "text": "确保眼睛能露出来"
+   },
+   {
+    "start": 13.56,
+    "end": 15.68,
+    "text": "最后兜里掏出墨镜"
+   },
+   {
+    "start": 15.68,
+    "end": 18.38,
+    "text": "戴到脸上保护眼睛"
+   },
+   {
+    "start": 18.38,
+    "end": 19.92,
+    "text": "一见秋衣就解决了"
+   },
+   {
+    "start": 19.92,
+    "end": 21.3,
+    "text": "玉米叶滑脸的问题"
+   },
+   {
+    "start": 21.3,
+    "end": 24.12,
+    "text": "不管是在玉米地里穿行"
+   },
+   {
+    "start": 24.12,
+    "end": 26.34,
+    "text": "还是在里面巴不敢缠"
+   },
+   {
+    "start": 26.34,
+    "end": 28.38,
+    "text": "秋衣往脸上一套"
+   },
+   {
+    "start": 28.38,
+    "end": 30.6,
+    "text": "玉米叶将不会存在"
+   }
+  ],
+  "text": "钻玉米地不滑脸教程秋衣展开遮住脸长袖绕后打成结衣服下摆向上翻面前衣服向下拉微调一下头顶确保眼睛能露出来最后兜里掏出墨镜戴到脸上保护眼睛一见秋衣就解决了玉米叶滑脸的问题不管是在玉米地里穿行还是在里面巴不敢缠秋衣往脸上一套玉米叶将不会存在",
+  "provenance": "初稿 = faster-whisper large；分歧清单 = faster-whisper small；**等待人工核对**"
+ },
+ "review": {
+  "flagged_paragraphs": [
+   {
+    "index": 11,
+    "start": 21.3,
+    "end": 24.12,
+    "reasons": [
+     "disagreement_substantive"
+    ],
+    "text": "不管是在玉米地里穿行",
+    "difference_chars": 4
+   },
+   {
+    "index": 12,
+    "start": 24.12,
+    "end": 26.34,
+    "reasons": [
+     "disagreement_substantive"
+    ],
+    "text": "还是在里面巴不敢缠",
+    "difference_chars": 4
+   },
+   {
+    "index": 13,
+    "start": 26.34,
+    "end": 28.38,
+    "reasons": [
+     "disagreement_substantive"
+    ],
+    "text": "秋衣往脸上一套",
+    "difference_chars": 4
+   },
+   {
+    "index": 0,
+    "start": 0.0,
+    "end": 1.82,
+    "reasons": [
+     "disagreement_substantive"
+    ],
+    "text": "钻玉米地不滑脸教程",
+    "difference_chars": 2
+   },
+   {
+    "index": 1,
+    "start": 1.82,
+    "end": 3.92,
+    "reasons": [
+     "disagreement_substantive"
+    ],
+    "text": "秋衣展开遮住脸",
+    "difference_chars": 2
+   },
+   {
+    "index": 2,
+    "start": 3.92,
+    "end": 5.86,
+    "reasons": [
+     "disagreement_substantive"
+    ],
+    "text": "长袖绕后打成结",
+    "difference_chars": 2
+   },
+   {
+    "index": 14,
+    "start": 28.38,
+    "end": 30.6,
+    "reasons": [
+     "disagreement_substantive"
+    ],
+    "text": "玉米叶将不会存在",
+    "difference_chars": 2
+   },
+   {
+    "index": 3,
+    "start": 5.86,
+    "end": 7.84,
+    "reasons": [
+     "disagreement_with_secondary"
+    ],
+    "text": "衣服下摆向上翻",
+    "difference_chars": 1
+   }
+  ],
+  "flagged_count": 8,
+  "flagged_total": 15,
+  "paragraph_count": 15,
+  "similarity_with_secondary": 0.8632,
+  "disagreement_spans": [
+   {
+    "kind": "replace",
+    "side": "both",
+    "start": 0.0,
+    "end": 1.82,
+    "primary_text": "地",
+    "secondary_text": "蒂"
+   },
+   {
+    "kind": "replace",
+    "side": "both",
+    "start": 1.82,
+    "end": 3.92,
+    "primary_text": "遮住",
+    "secondary_text": "蜘蛛"
+   },
+   {
+    "kind": "replace",
+    "side": "both",
+    "start": 3.92,
+    "end": 5.86,
+    "primary_text": "结",
+    "secondary_text": "截"
+   },
+   {
+    "kind": "replace",
+    "side": "both",
+    "start": 9.8,
+    "end": 11.5,
+    "primary_text": "调",
+    "secondary_text": "条"
+   },
+   {
+    "kind": "replace",
+    "side": "both",
+    "start": 15.68,
+    "end": 18.38,
+    "primary_text": "戴",
+    "secondary_text": "带"
+   },
+   {
+    "kind": "replace",
+    "side": "both",
+    "start": 18.38,
+    "end": 19.92,
+    "primary_text": "见",
+    "secondary_text": "件"
+   },
+   {
+    "kind": "replace",
+    "side": "both",
+    "start": 19.92,
+    "end": 21.3,
+    "primary_text": "叶",
+    "secondary_text": "蒂"
+   },
+   {
+    "kind": "replace",
+    "side": "both",
+    "start": 21.3,
+    "end": 24.12,
+    "primary_text": "地",
+    "secondary_text": "蒂"
+   },
+   {
+    "kind": "replace",
+    "side": "both",
+    "start": 24.12,
+    "end": 26.34,
+    "primary_text": "巴不敢缠",
+    "secondary_text": "发布感禅"
+   },
+   {
+    "kind": "replace",
+    "side": "both",
+    "start": 28.38,
+    "end": 30.6,
+    "primary_text": "叶将",
+    "secondary_text": "葉將"
+   },
+   {
+    "kind": "replace",
+    "side": "both",
+    "start": 28.38,
+    "end": 30.6,
+    "primary_text": "会",
+    "secondary_text": "不"
+   }
+  ],
+  "checklist": [
+   "逐行核对被标记的段落（低置信 / 复读嫌疑 / 两个配置分歧），其余行抽查即可",
+   "确认专有名词与术语（人名、机构、产品名），必要时补进 references/asr-lexicon.txt",
+   "确认数字：本工具只标不改，数字写法差异已由评测口径归一（见 D33）",
+   "补上被漏掉的整句（覆盖率兜底只看时间轴，看不出一句话被吞掉）",
+   "改完后把 reference.kind 从 semi-automatic-draft 改成 human-verified，并删掉 review 块"
+  ]
+ },
+ "known_asr_errors": []
+}
