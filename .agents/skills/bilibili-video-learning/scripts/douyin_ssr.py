@@ -32,8 +32,27 @@ MOBILE_WECHAT_UA = (                    # WeChat mobile UA asks Douyin for the S
     "MicroMessenger/8.0.53"
 )
 RATIOS = ("1080p", "720p", "540p", "360p")  # Public play endpoint accepts these ratio labels.
+SHARE_PAGE_CANDIDATES = (                # 以“能否抽出 play token”为成功判据逐个尝试，而不是“页面是否非空”（D25）。
+    ("iesdouyin", "https://www.iesdouyin.com/share/video/{aweme_id}/"),      # 实测成功的生产路径，先用它。
+    ("m_douyin", "https://m.douyin.com/share/video/{aweme_id}"),             # 移动端另一个可用 host，作为第二候选。
+    ("douyin_share", "https://www.douyin.com/share/video/{aweme_id}/"),
+    ("douyin_video", "https://www.douyin.com/video/{aweme_id}"),
+)
+VERIFICATION_PAGE_MARKERS = ("captcha", "verify", "验证码", "验证中间页", "_wafchallengeid")  # 命中即“被拒”而非“没数据”。
 TTWID_REGISTER_URL = "https://ttwid.bytedance.com/ttwid/union/register/"
 PLAY_REFERER = "https://www.douyin.com/"     # CDN accepts this public referer for ranged GET probes.
+
+
+# --- 平台风控/验证降级：与“取流路径不可用”是两件事，见 D25 ---
+class DouyinPlatformVerificationRequired(RuntimeError):
+    """平台对当前出口 IP 返回了风控/验证页（有页面壳、无视频数据）。
+
+    与 `DouyinSSRDownloadError` 的区别在于应对方式：这一档换同一 IP 上的下载方式没有用，
+    需要等待、更换出口网络，或按 D3 显式授权 Cookie。"""
+
+    def __init__(self, message: str, diagnostics: Optional[List[Dict[str, Any]]] = None):
+        super().__init__(message)
+        self.diagnostics = diagnostics or []                   # 与取流异常同形状，便于上层统一取诊断。
 
 
 # --- Carry SSR diagnostics across module boundaries ---
@@ -170,28 +189,54 @@ def resolve_public_input(source_text: str, session: requests.Session, diagnostic
     return resolved_input
 
 
-# --- Fetch the public SSR share page ---
+# --- Fetch the public SSR share page: 只有抽出 token 的候选才算成功 ---
 def fetch_share_page(aweme_id: str, session: requests.Session, diagnostics: List[Dict[str, Any]]) -> Dict[str, str]:
-    candidate_urls = [                                          # iesdouyin is preferred, douyin is kept as fallback.
-        canonical_url_for_aweme(aweme_id),
-        f"https://www.douyin.com/share/video/{aweme_id}/",
-        f"https://www.douyin.com/video/{aweme_id}",
-    ]
-    last_error = None
+    last_error: Optional[BaseException] = None
+    degraded_reasons: List[str] = []
 
-    for share_url in candidate_urls:
+    for candidate_name, url_template in SHARE_PAGE_CANDIDATES:
+        share_url = url_template.format(aweme_id=aweme_id)
         try:
             response = session.get(share_url, allow_redirects=True, timeout=15)
-            page_html = response.text or ""
-            has_payload = bool(page_html.strip())
-            add_diagnostic(diagnostics, "fetch_share_page", response.status_code < 400 and has_payload, "Fetched public SSR share page", share_url=share_url, final_url=response.url, status_code=response.status_code, html_bytes=len(response.content or b""))
-            if response.status_code < 400 and has_payload:
-                return {"html": page_html, "canonical_url": response.url or share_url}
-        except Exception as exc:
+            page_html = decode_html(response)                      # 抖音是 UTF-8；requests 会按 ISO-8859-1 猜码，必须自己解
+        except Exception as exc:                                  # 单个候选失败不终止整条候选链。
             last_error = exc
-            add_diagnostic(diagnostics, "fetch_share_page", False, f"Share page request failed: {exc}", share_url=share_url)
+            add_diagnostic(diagnostics, "fetch_share_page", False, f"候选 {candidate_name} 请求失败：{exc}", share_url=share_url)
+            continue
+
+        if response.status_code >= 400 or not page_html.strip():
+            add_diagnostic(diagnostics, "fetch_share_page", False, f"候选 {candidate_name} 未返回可用页面",
+                           share_url=share_url, status_code=response.status_code, html_bytes=len(response.content or b""))
+            continue
+
+        try:
+            video_id = extract_video_token(page_html)
+        except RuntimeError:                                       # 有页面但没有 token：继续试下一个候选。
+            reason = describe_degraded_page(page_html) or "页面未包含 play token"
+            degraded_reasons.append(f"{candidate_name}: {reason}")
+            add_diagnostic(diagnostics, "fetch_share_page", False, f"候选 {candidate_name} 有页面但无 token（{reason}）",
+                           share_url=share_url, status_code=response.status_code, html_bytes=len(page_html))
+            continue
+
+        add_diagnostic(diagnostics, "fetch_share_page", True, f"候选 {candidate_name} 抽到 play token",
+                       share_url=share_url, final_url=response.url, status_code=response.status_code,
+                       html_bytes=len(page_html), candidate=candidate_name)
+        return {"html": page_html, "canonical_url": response.url or share_url,
+                "video_id": video_id, "candidate": candidate_name}
+
+    if degraded_reasons:                                           # 所有候选都“有壳无数据” → 平台风控，独立成码。
+        raise DouyinPlatformVerificationRequired(
+            "抖音公开分享页没有暴露 play token（平台风控/验证页）：" + "；".join(degraded_reasons) +
+            "。这不是链接错误：请稍后重试、更换出口网络，或按需显式授权 Cookie。")
 
     raise RuntimeError(f"Could not fetch a public Douyin share page for aweme_id={aweme_id}: {last_error}")
+
+
+# --- 统一包装取流失败，但保留"平台风控"这一档的类型（否则会被吞成通用的取流不可用） ---
+def wrap_ssr_failure(exc: BaseException, diagnostics: List[Dict[str, Any]]) -> BaseException:
+    if isinstance(exc, DouyinPlatformVerificationRequired):    # 类型本身就是信息，必须原样传下去（D25）。
+        return DouyinPlatformVerificationRequired(str(exc), diagnostics)
+    return DouyinSSRDownloadError(str(exc), diagnostics)
 
 
 # --- Extract JSON objects from common Douyin SSR script forms ---
@@ -238,6 +283,36 @@ def find_video_token_in_json(payload: Any) -> Optional[str]:
             return token_match.group(1)
 
     return None
+
+
+# --- 按 UTF-8 解码页面（抖音 SSR 不声明 charset，requests 的猜测会让中文风控标记变成乱码） ---
+def decode_html(response: "requests.Response") -> str:
+    content = response.content or b""
+    if not content:
+        return response.text or ""
+    return content.decode("utf-8", "replace")
+
+
+# --- 判断页面是否是“有壳无数据”的风控/验证页 ---
+def describe_degraded_page(page_html: str) -> Optional[str]:
+    reasons: List[str] = []
+    lowered = page_html.casefold()
+    markers = [marker for marker in VERIFICATION_PAGE_MARKERS if marker in lowered]
+    if markers:
+        reasons.append(f"页面出现 {','.join(markers)} 标记")
+    for payload in iter_embedded_json(page_html):                 # SSR 正常时 videoInfoRes 一定带视频数据。
+        if not isinstance(payload, dict):
+            continue
+        loader_data = payload.get("loaderData")
+        if not isinstance(loader_data, dict):
+            continue
+        for page in loader_data.values():
+            info = page.get("videoInfoRes") if isinstance(page, dict) else None
+            if isinstance(info, dict) and not info.get("item_list") and not info.get("aweme_detail"):
+                fields = ",".join(sorted(info.keys())[:5]) or "空"
+                reasons.append(f"videoInfoRes 无视频数据（字段：{fields}）")
+                break
+    return "；".join(reasons) or None
 
 
 # --- Extract the public play token from SSR HTML ---
@@ -437,7 +512,7 @@ def download_public_video(source_text: str, output_path: str, ratio: str = "1080
     except Exception as exc:
         if not diagnostics or diagnostics[-1].get("ok") is True:
             add_diagnostic(diagnostics, "ssr_pipeline", False, f"SSR public chain failed: {exc}")
-        raise DouyinSSRDownloadError(str(exc), diagnostics) from exc
+        raise wrap_ssr_failure(exc, diagnostics) from exc
 
 
 # --- Inspect public metadata without downloading the media file ---
@@ -476,7 +551,7 @@ def inspect_public_metadata(source_text: str) -> Dict[str, Any]:
     except Exception as exc:
         if not diagnostics or diagnostics[-1].get("ok") is True:
             add_diagnostic(diagnostics, "metadata_pipeline", False, f"Public metadata inspection failed: {exc}")
-        raise DouyinSSRDownloadError(str(exc), diagnostics) from exc
+        raise wrap_ssr_failure(exc, diagnostics) from exc
 
 
 # --- Inspect public ratios without downloading the full media file ---
@@ -512,7 +587,7 @@ def inspect_public_ratios(source_text: str, watermark: bool = False) -> Dict[str
     except Exception as exc:
         if not diagnostics or diagnostics[-1].get("ok") is True:
             add_diagnostic(diagnostics, "ratio_probe_pipeline", False, f"Public ratio probe failed: {exc}")
-        raise DouyinSSRDownloadError(str(exc), diagnostics) from exc
+        raise wrap_ssr_failure(exc, diagnostics) from exc
 
 
 # --- Standalone diagnostic CLI ---
