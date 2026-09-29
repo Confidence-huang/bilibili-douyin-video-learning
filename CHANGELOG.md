@@ -2,6 +2,30 @@
 
 All notable public changes are recorded here.
 
+## 1.15.0 - 2026-09-29
+
+- **`doctor status` now reports Skill assets**: how many lexicon entries and verified conflict
+  preferences exist, whether chunking is available and - read from the source rather than hard
+  coded - what its default is, plus the prompt template list. The numbers come from the real
+  files, so they cannot drift away from the code they describe. See D39.
+- **The review list reaches the note.** `verify_transcript` already produced a ranked
+  `needs_review_top`, but it only existed inside JSON. Notes now end with a "需要人工确认的差异"
+  section listing timestamp, this transcript's wording, the other source's wording and the size
+  of the difference, plus how many conflicts a verified table already ruled on. It presents, it
+  does not rewrite, and it disappears entirely when there is nothing to review.
+- **Two rules became machine checks.** Every prompt template must declare a `template-version`
+  and they must not contradict each other; every non-comment line in the lexicon and the conflict
+  preference table must carry a `#` evidence comment, turning "to add a word, cite the case" from
+  a request in a header into something CI enforces. Both files currently comply.
+- The same mistake landed for the third time and is recorded: new functions were appended after
+  the `if __name__ == "__main__":` block, and after repeated moves that file ended up with two
+  such blocks, the earlier one calling `main` before it was defined. The lesson is that the
+  validator itself needs a test that imports and runs it. Separately, the first version of the
+  review section made `note render` fail outright when the optional module could not be imported
+  in the CLI subprocess; it is now wrapped so a missing module means a missing section, never a
+  failed note.
+- Tests: **333 passing** offline cases.
+
 ## 1.14.0 - 2026-09-29
 
 - **`chunk_length` finally does something.** The setting existed but was never read anywhere in the

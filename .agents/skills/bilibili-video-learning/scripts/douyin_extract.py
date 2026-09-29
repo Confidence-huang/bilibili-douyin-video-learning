@@ -787,6 +787,13 @@ def to_markdown(result: dict, *, include_transcript: bool = False) -> str:
     lines.append(section("核心要点") + "\n\n- [待整理]\n")
     lines.append(section("详细笔记") + "\n\n[待整理]\n")
 
+    try:                                                                         # 可选增强：加载不到也不能让笔记渲染失败（D39）
+        import review_section
+        review = review_section.render_review_section(result)                    # 有校验信息才加小节
+    except Exception:
+        review = ""
+    if review:
+        lines.append(review)
     return "\n".join(lines)
 
 
