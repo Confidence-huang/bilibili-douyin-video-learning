@@ -16,6 +16,7 @@ EXIT_RATIO_UNAVAILABLE = 23          # 请求的画质在所有公开档位里�
 EXIT_TRANSCRIPTION_FAILED = 24       # 取流成功但本地 ASR 失败：检查运行时/模型/显存。
 EXIT_SOURCES_DISAGREE = 25           # 交叉校验发现两份来源不一致：需要人工判断以哪一份为准。
 EXIT_PLATFORM_VERIFICATION_REQUIRED = 26  # 平台风控/验证页：同 IP 换下载方式无效，需等待、换出口网络或授权 Cookie。
+EXIT_NO_AUDIO_TRACK = 27             # 作品没有音轨（图文/纯图片）：重试与换下载方式都无意义，应改走图片 OCR。
 
 RATIO_FAILURE_MARKERS = ("unsupported ratio", "no public play ratio worked")  # 画质失败目前只有文本可判。
 
@@ -25,11 +26,19 @@ class TranscriptionFailedError(RuntimeError):
     """取流成功、但本机转写阶段失败；与“拿不到视频”区分开，便于调用方分别处理。"""
 
 
+# --- 作品没有音轨：与"取流失败""转写失败"都不同，是"这个作品本来就没有语音" ---
+class NoAudioTrackError(RuntimeError):
+    """图文/纯图片作品没有音轨；应改走图片 OCR，而不是重试 ASR。"""
+
+
 # --- 判断一个异常属于哪一档退出码 ---
 def classify_failure(exc: BaseException, ssr_error_types: tuple[type, ...] = (),
-                     platform_error_types: tuple[type, ...] = ()) -> int:
+                     platform_error_types: tuple[type, ...] = (),
+                     no_audio_error_types: tuple[type, ...] = ()) -> int:
     if isinstance(exc, TranscriptionFailedError):                                  # 本地 ASR 失败：重试取流没有意义
         return EXIT_TRANSCRIPTION_FAILED
+    if isinstance(exc, NoAudioTrackError) or (no_audio_error_types and isinstance(exc, no_audio_error_types)):
+        return EXIT_NO_AUDIO_TRACK                                                 # 没有音轨：换方式/重试都没用，改走 OCR
     if platform_error_types and isinstance(exc, platform_error_types):              # 风控/验证：比"取流不可用"更具体，先判它
         return EXIT_PLATFORM_VERIFICATION_REQUIRED
     if ssr_error_types and isinstance(exc, ssr_error_types):                        # 分享页取流失败：可以重试或换下载方式
