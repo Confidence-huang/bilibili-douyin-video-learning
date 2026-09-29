@@ -346,6 +346,9 @@ def bilibili_transcribe(bvid, output_dir=None, model_size="small", cookies=None,
         result["device"] = asr_result.get("device")
         result["compute_type"] = asr_result.get("compute_type")
         result["duration"] = asr_result.get("duration", 0)
+        result["audio_duration"] = asr_result.get("audio_duration")           # 音频真实时长，用于复核覆盖率分母
+        result["coverage_before"] = asr_result.get("coverage_before")         # 补转前的覆盖率
+        result["coverage_after"] = asr_result.get("coverage_after")           # 补转后的覆盖率
         result["asr_diagnostics"] = asr_result.get("diagnostics", [])
         result["diagnostics"]["audio"] = {"ok": True, "reason": None}
         log(
