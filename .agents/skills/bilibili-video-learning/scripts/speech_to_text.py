@@ -28,6 +28,8 @@ class TranscriptionSettings(NamedTuple):
     language: str = "zh"                                                         # 固定中文可减少自动语言识别开销
     beam_size: int = 1                                                           # 长视频优先速度，术语由笔记阶段校正
     vad_filter: bool = True                                                      # 跳过课堂静音；关掉可避免语音被误判丢弃
+    vad_min_silence_ms: int = 2000                                                # 与 faster-whisper 默认一致；调小会让 VAD 更容易切断说话
+    vad_speech_pad_ms: int = 400                                                  # 人声边界留白，过小会削掉字头字尾
     condition_on_previous_text: bool = False                                     # 降低长课串词污染
     coverage_check: bool = True                                                   # 是否校验转写覆盖率并补转可疑空档
     coverage_floor: float = asr_coverage.DEFAULT_COVERAGE_FLOOR                    # 覆盖率低于该值时在诊断里显式提示
@@ -135,6 +137,10 @@ def _run_faster_whisper(
             task="transcribe",                                                        # 学习笔记只需要转写，不做翻译
             beam_size=settings.beam_size,                                             # 由 settings 决定，逐字稿场景可调大
             vad_filter=settings.vad_filter,                                           # 跳过课堂静音和空白段，减少无效解码
+            vad_parameters={                                                          # VAD 的激进程度直接决定会不会丢掉整句话
+                "min_silence_duration_ms": settings.vad_min_silence_ms,                # 小于该长度的静音不切断
+                "speech_pad_ms": settings.vad_speech_pad_ms,                          # 人声两侧保留的缓冲
+            } if settings.vad_filter else None,                                       # 关闭 VAD 时不应传参
             condition_on_previous_text=settings.condition_on_previous_text,            # 降低长课串词污染
         )
         return active_model, _reading_to_segments(reading), info                     # 返回模型、第一遍正文与语言信息

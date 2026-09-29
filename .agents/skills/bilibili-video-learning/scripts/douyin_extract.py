@@ -694,6 +694,7 @@ def parse_cli_arguments(argv: list) -> argparse.Namespace:
     parser.add_argument("--socket-timeout", type=int, default=60, help="yt-dlp network timeout in seconds")
     parser.add_argument("--no-vad", action="store_true", help="Disable VAD silence filtering; keeps speech that VAD would silently drop")
     parser.add_argument("--no-coverage-retry", action="store_true", help="Skip the automatic re-transcription of suspicious timeline gaps")
+    parser.add_argument("--vad-min-silence-ms", type=int, default=2000, help="VAD: silence shorter than this is not cut (faster-whisper default 2000)")
     return parser.parse_args(argv)
 
 
@@ -711,6 +712,7 @@ def main(argv: list = None) -> int:
         model_size=args.model,
         language=language,
         vad_filter=not args.no_vad,                                               # 显式 --no-vad 时不再让 VAD 判断静音
+        vad_min_silence_ms=args.vad_min_silence_ms,                                # 调小会让 VAD 更激进，也更容易吞掉整句话
         coverage_check=not args.no_coverage_retry,                                 # 显式关闭补转时保持纯第一遍结果
     )
 
