@@ -2,6 +2,49 @@
 
 All notable public changes are recorded here.
 
+## 1.5.0 - 2026-09-29
+
+- **ASR coverage guard.** `scripts/speech_to_text.py` now validates every pass before
+  returning: it measures the real audio duration and the mean volume of each gap of 2s
+  or more, and re-transcribes the loud ones with `vad_filter=False` before merging them
+  back onto the timeline. A gap at -12.9 dBFS that had silently lost 5.6 seconds of
+  speech is exactly what this catches. The decision, its evidence (coverage before and
+  after, the gap list, each retried window with its measured dBFS) and the recovery all
+  land in `diagnostics`. `--no-vad` and `--no-coverage-retry` opt out.
+  All seven ASR call sites share this entry point, so Douyin and Bilibili are both
+  covered; `transcribe_bilibili.py` and `download_audio.py` also publish
+  `audio_duration`, `coverage_before` and `coverage_after`. The logic lives in
+  `scripts/asr_coverage.py`, which takes the window transcriber as a callback and is
+  therefore fully testable without a model, ffmpeg or network access. See D16.
+- **VAD is now tunable and recorded.** `TranscriptionSettings` carries
+  `vad_min_silence_ms` (default 2000, matching faster-whisper) and `vad_speech_pad_ms`
+  (default 400); `douyin_extract.py` exposes `--vad-min-silence-ms`. Previously VAD
+  aggressiveness could not be configured at all, and the loss recorded in D16 happened
+  under a non-default VAD setting.
+- **Cache identity covers how the audio is decoded.** `asr_params` (settings identity
+  plus parameter version) and `engines` (installed faster-whisper / openai-whisper
+  versions) join the Douyin cache key, and `CACHE_SCHEMA_VERSION` moves to 3. Changing
+  `vad_filter`, `beam_size` or a VAD threshold, or upgrading the engine, can no longer
+  reuse a transcript produced by different code. See D17.
+- **Device availability is proven, not assumed.** `ctranslate2.get_cuda_device_count()`
+  can report 1 while the CUDA runtime libraries are missing. Because the failure
+  surfaces at the first `encode()` rather than at model construction, the load and the
+  first pass now share one `try`; the run retries once on `cpu/int8` and records the
+  reason in the new `device_fallback` field. An explicit `device="cuda"` is never
+  silently downgraded, and when the openai-whisper fallback also fails the original
+  error is re-raised so the root cause is not replaced by "No module named 'torch'".
+  See D19.
+- **Failure exit codes are now distinguishable.** `utils/exit_codes.py` owns the
+  contract (0 ok, 1 unclassified, 20 share page unavailable, 21 cookie permission
+  required, 22 network timeout, 23 ratio unavailable, 24 local transcription failed),
+  `douyin_extract.py` mirrors the code into its JSON payload, the Bilibili script
+  classifies its exception path while keeping 2 as the unclassified fallback, and the
+  CLI imports the cookie code instead of repeating the literal 21. See D18.
+- Tests: the offline suite grows from 95 to 114 passing cases, all without a model,
+  ffmpeg, network access or browser cookies. The real VAD-loss data is committed as
+  `tests/fixtures/asr_vad_dropped_speech.json` (180 real segments, no audio, so it
+  passes the repository's forbidden-suffix boundary).
+
 ## 1.4.2 - 2026-09-14
 
 - Note skeletons moved out of the three backends into `prompts/*.md`, loaded by

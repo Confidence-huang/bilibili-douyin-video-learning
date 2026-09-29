@@ -56,6 +56,11 @@ Windows 安装器创建 `.venv-gpu`，安装 faster-whisper，并保留 OpenAI W
 
 已在 RTX 5070 Laptop（Blackwell / sm_120，8GB 显存）实测：faster-whisper `small` 以 `cuda/float16` 转写 49 秒中文音频约 5.4 秒（≈9× 实时），显存占用约 3.3GB。安装后可用 `cli-anything-video-learning --json doctor status` 输出中的 `gpu` 字段确认 CUDA 可见性。
 
+**`cuda` 不等于"真的用上了 GPU"。** 设备可见但 CUDA 运行时库缺失时（WSL 驱动只提供 `libcuda.so`，不含 cuBLAS/cuDNN），
+第一次解码会失败。转写入口会自己验证：失败后改用 `cpu/int8` 重跑一遍，并在结果里写 `device_fallback` 说明原因。
+所以判断是否真的走了 GPU，要看 `device=cuda` **且** `device_fallback` 为空。
+在 WSL2 + RTX 5070 Laptop 上补齐运行时库后实测：`large-v3` 以 `cuda/float16` 转写 259.77 秒中文口播音频耗时 49.3 秒（≈5.3× 实时）。
+
 ### Ubuntu/Linux（稳定 CPU 档案）
 
 ```bash
