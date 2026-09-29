@@ -308,6 +308,7 @@ def evaluate(hypothesis_path: str | Path, gold_path: str | Path, *, elapsed_seco
         "hallucination": hallucination_rate(normalized_hypothesis, normalized_reference, duration, min_run=min_run),
         "coverage": timeline_coverage(hypothesis_segments, duration),
         "timeline_offset": timeline_offset(hypothesis_segments, gold_segments),  # 真对齐后的时间差，不是段边界差
+        "punctuation": punctuation_scores(hypothesis_text, reference_text),   # 标点质量（D42）
         "real_time_factor": None,
         "normalization": {"numerals": True, "traditional_to_simplified": True,
                           "note": "数字写法与繁简差异不计入 CER；要严格口径请用 --keep-numerals"},
@@ -391,3 +392,45 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
+# --- 标点质量：把两份文本的标点按"去标点后的字符位置"配对，窗口内算命中（D42）---
+PUNCTUATION_MARKS = "。，、；：？！"
+PUNCTUATION_WINDOW = 3                                                                 # 允许 ±3 字的对齐误差
+
+
+def _mark_positions(text: str) -> tuple[str, list[tuple[int, str]]]:
+    stripped, marks, index = [], [], 0
+    for char in text or "":
+        if char in PUNCTUATION_MARKS:
+            marks.append((index, char))                                               # 记在"去标点后"的位置上
+        else:
+            stripped.append(char)
+            index += 1
+    return "".join(stripped), marks
+
+
+def punctuation_scores(hypothesis_text: str, reference_text: str,
+                       window: int = PUNCTUATION_WINDOW) -> dict:
+    """返回标点的精确率/召回率/F1；金标没有标点时返回 None（那种素材不该拿标点去评）。"""
+    _, hypothesis_marks = _mark_positions(hypothesis_text)
+    _, reference_marks = _mark_positions(reference_text)
+    if not reference_marks:
+        return {"precision": None, "recall": None, "f1": None, "reference_marks": 0,
+                "hypothesis_marks": len(hypothesis_marks), "matched": 0,
+                "note": "金标无标点，标点质量不适用"}
+    matched = 0
+    used = set()
+    for position, mark in hypothesis_marks:
+        for index, (ref_position, ref_mark) in enumerate(reference_marks):
+            if index in used or ref_mark != mark:
+                continue
+            if abs(ref_position - position) <= window:
+                matched += 1
+                used.add(index)
+                break
+    precision = matched / len(hypothesis_marks) if hypothesis_marks else 0.0
+    recall = matched / len(reference_marks)
+    f1 = (2 * precision * recall / (precision + recall)) if (precision + recall) else 0.0
+    return {"precision": round(precision, 4), "recall": round(recall, 4), "f1": round(f1, 4),
+            "reference_marks": len(reference_marks), "hypothesis_marks": len(hypothesis_marks),
+            "matched": matched, "window": window}

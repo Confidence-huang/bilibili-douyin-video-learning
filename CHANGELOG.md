@@ -2,6 +2,28 @@
 
 All notable public changes are recorded here.
 
+## 1.18.0 - 2026-09-29
+
+- **Punctuation is now measured, and its ceiling is documented.** `eval_asr` gained a punctuation
+  score (the two sides' marks are paired by their position in the mark-free text, matched within a
+  three-character window, reported as precision/recall/F1, and reported as "not applicable" when
+  the gold carries no punctuation). Against the Douyin gold, whose 217 marks come from a human
+  transcript: no punctuation scores 0.0, and the rule-based approach scores **F1 0.313** (179
+  marks, precision 0.346, recall 0.286). See D42.
+- **A regression I introduced, caught twice.** Raising the comma threshold to 0.35s felt like
+  "fewer, better marks"; it collapsed F1 from 0.313 to 0.033. The existing test caught it first -
+  it asserts that even a 0.1s gap gets a mark - and the new metric quantified it afterwards. Both
+  had to exist; either alone would have led me to the wrong conclusion.
+- **No punctuation model dependency.** The ceiling is set by the segmentation: Chinese speech
+  carries roughly one mark per ten characters while ASR segments arrive about every 1.4 seconds, so
+  boundaries alone cannot supply enough marks. The syntax clues (sentence-final particles,
+  conjunction openings) are kept because they are principled and free, but they did not measurably
+  raise F1 - 0.3131 with them against 0.3133 without - and that is stated rather than spun.
+- **`--chunk-length` and `--chunk-overlap` reach the command line.** The chunking from D38 was only
+  reachable from code; `transcribe_audio_cli.py` now exposes both, defaulting to off so existing
+  behaviour is unchanged.
+- Tests: **340 passing** offline cases.
+
 ## 1.17.0 - 2026-09-29
 
 - **Bilibili finally has a gold set, and it says who verified it.** The 30.63s sample

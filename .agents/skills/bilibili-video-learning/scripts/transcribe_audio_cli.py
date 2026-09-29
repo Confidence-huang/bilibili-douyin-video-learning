@@ -30,6 +30,9 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--hotwords", help="额外的领域词（空格或逗号分隔），做解码偏置以修正同音专名")
     parser.add_argument("--lexicon", action="append", help="词表文件路径，可重复；默认读 references/asr-lexicon.txt")
     parser.add_argument("--no-coverage-retry", action="store_true", help="关闭可疑空档覆盖率补转")
+    parser.add_argument("--chunk-length", type=float, default=0.0,
+                        help="长音频分块长度（秒）；0=不分块（默认）。30 分钟以上素材可用 600（见 D38/D40）")
+    parser.add_argument("--chunk-overlap", type=float, default=2.0, help="相邻块重叠秒数，默认 2")
     return parser.parse_args()
 
 
@@ -51,6 +54,8 @@ def main() -> int:
         model_size=args.model,
         language=args.language,
         coverage_check=not args.no_coverage_retry,
+        chunk_length=args.chunk_length,                                                # 长音频分块（D38/D40）
+        chunk_overlap=args.chunk_overlap,
         hotwords=asr_lexicon.build_hotwords(asr_lexicon.load_lexicon(args.lexicon), extra=args.hotwords),
     )
     settings = speech_to_text.apply_profile(settings, args.profile)   # 档位覆盖 beam/词级时间戳/二次解码
