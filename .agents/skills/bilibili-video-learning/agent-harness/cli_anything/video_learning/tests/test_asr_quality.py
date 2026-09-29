@@ -447,3 +447,26 @@ def test_simplification_mode_reports_reality():
     # 评测报告里的字段必须等于实际模式（此前写死 True，跨环境基线因此对不上）
     gold = _Path(normalize.__file__).parent.parent / "eval/gold/bilibili-BV1ntah6TEe9.json"
     assert eval_asr.evaluate(gold, gold)["normalization"]["traditional_to_simplified"] == mode
+
+
+# --- 用例说明必须能在 Windows 盘符下解析（真 bug：最后一个冒号可能属于盘符，D49）---
+def test_benchmark_case_parsing_handles_windows_drive_letters(tmp_path, monkeypatch):
+    benchmark = load_script_module("run_benchmark")
+    hypothesis = tmp_path / "hyp.json"
+    gold = tmp_path / "gold.json"
+    hypothesis.write_text("{}", encoding="utf-8")
+    gold.write_text("{}", encoding="utf-8")
+
+    case = benchmark.parse_case(f"win={hypothesis}:{gold}")          # 两个绝对路径都带盘符（CI 上是 D:/C:）
+
+    assert case["hypothesis"] == hypothesis and case["gold"] == gold
+
+
+# --- 找不到文件时仍要退回"最后一个冒号"的旧行为，并让调用方报文件缺失 ---
+def test_benchmark_case_parsing_falls_back_to_last_colon():
+    benchmark = load_script_module("run_benchmark")
+
+    case = benchmark.parse_case("x=/tmp/不存在.json:bilibili-BV1ntah6TEe9.json")
+
+    assert case["hypothesis"].name == "不存在.json"
+    assert case["gold"].name == "bilibili-BV1ntah6TEe9.json"
