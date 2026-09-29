@@ -2,6 +2,54 @@
 
 All notable public changes are recorded here.
 
+## 1.7.0 - 2026-09-29
+
+- **Measurement first.** `eval/gold/` ships a text-only gold set (media stays out of the
+  repository; `media.url` reproduces it) and `scripts/eval_asr.py` reports CER, hallucination
+  rate, coverage, timeline offset and RTF. Writing its tests caught a real definition bug:
+  with `difflib.SequenceMatcher(a=hypothesis, b=reference)` an `insert` opcode is text the
+  reference has and the hypothesis lacks - an omission - while `delete` is the extra
+  hypothesis text. The first version read them by intuition and reported gold text that ASR
+  had dropped as "hallucination". Real baseline: CER 0.0402 on the Douyin gold. See D25.
+- **Audio front-end on by default.** `highpass=f=70` plus EBU R128 `loudnorm` is the one clear
+  accuracy win in this release: CER 0.0522 -> **0.0433** (-17% relative) with no measurable
+  time cost. Single-variable ablation was required to see it - the first pass ran combined
+  configurations and concluded that *every* optimisation made things worse. See D26.
+- **Domain lexicon, off by default.** `references/asr-lexicon.txt` plus `--lexicon`/`--hotwords`
+  and terms harvested from title and tags bias decoding against homophone errors
+  (雪包/血包, 经营/经济, 一不避体/衣不蔽体). Measured *worse* on the gold (0.0433 -> 0.0751 with
+  omissions 11 -> 56), so it stays opt-in and must be verified per video. See D26.
+- **Profiles named after what they optimise**: `balanced` (default, lowest measured CER),
+  `timing` (adds word timestamps, which are a capability rather than a CER win), `quality`
+  (beam 5 plus targeted re-decode, highest coverage). No profile may disable the coverage
+  safety net. Word timestamps and beam 5 are actively harmful *together* (omissions 17 -> 41).
+- **Targeted re-decode of suspicious spans.** Only spans that look uncertain are re-decoded,
+  and a replacement is accepted only if it is non-empty, keeps >=60% of the span duration,
+  shares >=50% of its characters with the original and improves confidence by >=0.15. Every
+  decision, including each rejection, is recorded. On the gold the mechanism either finds
+  nothing (small model: all segments above -0.18) or fires and rejects everything with
+  `confidence_not_improved` (large-v3 with a p10-derived threshold) - which is the intended
+  behaviour, and better than lowering the threshold until a counter moves. See D27.
+- **Re-segmentation at word boundaries** with a hard invariant: no character may be lost or
+  reordered, timings stay monotonic and non-overlapping, and anything inconsistent degrades to
+  the original segment instead of guessing. On current material (max segment 5.24s) it is a
+  no-op; parameter sweeps confirm `dropped_chars == 0` as cuts get finer. See D30.
+- **Fusion with per-span provenance.** `fuse_transcripts` produces one transcript from two
+  sources, labelling each span `subtitle`/`asr`/`mixed`, keeping the primary wording with
+  `alternatives` on disagreement, and refusing to drop content that either source contained
+  (it raises instead, with a completeness audit re-attaching missed segments). Real Douyin pair:
+  similarity 0.9718, 30 spans, 246 segments, 3 segments recovered. Bilibili gains a
+  subtitle-first entry; the honest caveat is that no real subtitle track could be obtained
+  anonymously (50 popular videos checked), so that path rests on unit tests plus a synthetic
+  track on a real video. Bilibili segments are now canonical (`start/end/text/provenance`). See D29.
+- **Image posts no longer masquerade as ASR failures.** A missing audio track is detected
+  before extraction and exits **27** (`EXIT_NO_AUDIO_TRACK`) with a message pointing at image
+  OCR; 27 is distinct from 24 because changing machine or model cannot help. Verified with real
+  ffmpeg-generated media in both directions. See D28.
+- Real large-v3 numbers on the gold: **CER 0.0214**, coverage 0.9976, timeline offset median
+  0.20s - about half the best small-model CER. Tests: **270 passing** offline cases, no model,
+  ffmpeg, network or cookies required for the suite.
+
 ## 1.6.1 - 2026-09-29
 
 - **Burned-in caption extraction.** `scripts/hard_subtitle.py` reads the caption band, OCRs
