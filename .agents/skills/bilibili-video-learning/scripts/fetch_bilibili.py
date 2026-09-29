@@ -964,6 +964,9 @@ def to_markdown(data, *, include_transcript=False):
 
     try:                                                                         # 可选增强：加载不到也不能让笔记渲染失败（D39）
         import review_section
+        processing = review_section.render_processing_section(result)            # 让读笔记的人看到处理链（D50）
+        if processing:
+            lines.append(processing)
         review = review_section.render_review_section(result)                    # 有校验信息才加小节
     except Exception:
         review = ""

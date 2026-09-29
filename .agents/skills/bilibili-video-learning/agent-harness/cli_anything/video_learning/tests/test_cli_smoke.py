@@ -61,7 +61,32 @@ def module_level_attribute_names(tree: ast.Module) -> set:
         for child in ast.walk(node):
             if isinstance(child, ast.Attribute) and isinstance(child.value, ast.Name):
                 names.add(child.value.id)
-    return names
+    return names - _locally_bound_names(tree)
+
+
+def _locally_bound_names(tree: ast.Module) -> set:
+    """模块级语句内部**自己绑定**的名字（lambda 参数、推导式/for/with 目标、赋值目标）。
+
+    为什么需要：`PROCESSING_LABELS = {"x": ("标签", lambda item: item.get("m"))}` 这种模块级字典里，
+    lambda 的参数 `item` 会被朴素 AST 遍历当成"模块级用到的名字"，报成未导入的假阳性。
+    守卫测试一旦狼来了就会被关掉，所以必须排除局部绑定。
+    """
+    bound = set()
+    for node in module_level_bodies(tree):
+        for child in ast.walk(node):
+            if isinstance(child, ast.Lambda):
+                bound.update(argument.arg for argument in child.args.args)
+                bound.update(argument.arg for argument in child.args.kwonlyargs)
+            elif isinstance(child, ast.comprehension):
+                bound.update(target.id for target in ast.walk(child.target) if isinstance(target, ast.Name))
+            elif isinstance(child, (ast.For, ast.AsyncFor)):
+                bound.update(target.id for target in ast.walk(child.target) if isinstance(target, ast.Name))
+            elif isinstance(child, ast.withitem) and child.optional_vars is not None:
+                bound.update(target.id for target in ast.walk(child.optional_vars) if isinstance(target, ast.Name))
+            elif isinstance(child, ast.Assign):
+                bound.update(target.id for target in ast.walk(child) if isinstance(target, ast.Name)
+                             and isinstance(getattr(target, "ctx", None), ast.Store))
+    return bound
 
 
 # --- 核心守卫：模块级用到的每个"模块名"都必须是真实存在的导入（v1.19.0 的形态）---

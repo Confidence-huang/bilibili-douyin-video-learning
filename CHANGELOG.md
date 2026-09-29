@@ -2,6 +2,23 @@
 
 All notable public changes are recorded here.
 
+## 1.25.0 - 2026-09-29
+
+- **Notes now say what was done to the transcript.** Whether normalisation actually ran, whether the
+  audio was chunked, whether the coverage guard fired and how many windows the hallucination gate
+  rejected all lived only inside the JSON diagnostics. They now appear as a short table at the end of
+  a note, and unknown steps are omitted rather than printed, so internal step names never leak into
+  something a reader sees. See D50.
+- **docs/ACCEPTANCE.md gained a provenance table** mapping each CER figure to the release and
+  normalisation mode it was measured in. There is only a single data point per case so far, so no
+  trend is invented - just the source, so a trend becomes possible later.
+- **A fourth false positive in my own smoke guard.** The lambda parameter `item` inside a
+  module-level dict was treated as an unimported module name by the naive AST walk. The guard now
+  excludes locally bound names (lambda arguments, comprehension/for/with targets, assignment
+  targets). Four false positives - builtins, pure calls, `str`, lambda parameters - is the lesson:
+  a static guard has to do scope analysis, or it spends the trust people place in it.
+- Tests: **441 passing** offline cases.
+
 ## 1.24.0 - 2026-09-29
 
 - **Transcripts now record whether the traditional-to-simplified conversion actually happened.**
