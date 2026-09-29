@@ -38,7 +38,7 @@ if hasattr(sys.stderr, "reconfigure"):
 
 from convert_subtitle import parse_bilibili_json, parse_srt, parse_vtt, parse_ytdlp_json  # 统一解析 yt-dlp 可返回的字幕格式。
 from file_output import write_text_atomically  # 所有最终 Markdown 先完整写入临时文件再原子发布。
-from runtime_output import log, sanitize_diagnostics, sanitize_text  # 进度与 JSON 诊断使用同一脱敏边界。
+from runtime_output import EXIT_GENERIC_FAILURE, classify_failure, log, sanitize_diagnostics, sanitize_text  # 进度与 JSON 诊断使用同一脱敏边界。
 
 
 # --- 解析接收者自己的笔记库位置 ---
@@ -997,6 +997,15 @@ def save_to_obsidian_folder(
 
 # ─── CLI ─────────────────────────────────────────────────────────
 
+
+# --- 把取流异常翻译成 Agent 可区分的退出码 ---
+def resolve_failure_exit_code(exc: BaseException) -> int:
+    classified = classify_failure(exc)                                        # 网络超时/本地 ASR 与普通取流失败分开反馈。
+    if classified != EXIT_GENERIC_FAILURE:
+        return classified                                                     # 分类成功时用更精确的退出码。
+    return 2                                                                  # 未分类异常保留既有的 2 号语义，不静默改变契约。
+
+
 if __name__ == "__main__":
     if len(sys.argv) < 2:
         print("Usage: python fetch_bilibili.py <url_or_bvid> [options]")
@@ -1079,7 +1088,7 @@ if __name__ == "__main__":
             result = fetch(arg, cookies=cookies, get_comments=get_comments)
     except Exception as exc:
         result = {"error": str(exc), "source_url": arg}         # JSON 调用方仍能得到结构化失败。
-        exit_code = 2
+        exit_code = resolve_failure_exit_code(exc)              # 网络超时/本地 ASR 与普通取流失败分开反馈。
 
     if result.get("error"):
         exit_code = exit_code or 1                               # 后端返回错误时不得伪装成功。

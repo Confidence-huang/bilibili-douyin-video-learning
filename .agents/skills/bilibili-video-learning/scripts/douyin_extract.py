@@ -32,7 +32,14 @@ from speech_to_text import (                                                    
     installed_engine_versions,
     transcribe_audio_file,
 )
-from runtime_output import log, sanitize_diagnostics, sanitize_text             # 进度和结构化错误共用脱敏边界。
+from runtime_output import (                                                      # 进度和结构化错误共用脱敏边界。
+    EXIT_GENERIC_FAILURE,
+    TranscriptionFailedError,
+    classify_failure,
+    log,
+    sanitize_diagnostics,
+    sanitize_text,
+)
 from file_output import write_json_atomically, write_text_atomically             # 缓存和最终 Markdown 只原子发布完整文件。
 from media_tools import find_ffmpeg                                              # 所有平台共用同一 FFmpeg 解析规则。
 from prompt_templates import load_template                                       # 笔记骨架来自可评审的 prompts/*.md。
@@ -441,13 +448,16 @@ def transcribe(
     settings: TranscriptionSettings | None = None,
 ) -> tuple[list, str, dict]:
     active = settings or TranscriptionSettings(model_size=model_size, language=language)  # 未显式传参时沿用历史默认值
-    asr_result = transcribe_audio_file(                                           # 首选 faster-whisper + CTranslate2 + cuda/float16
-        wav_path,
-        model_size=active.model_size,
-        language=active.language,
-        log_prefix="douyin-asr",
-        settings=active,                                                          # 覆盖率兜底与 VAD 开关随 settings 一起生效
-    )
+    try:
+        asr_result = transcribe_audio_file(                                       # 首选 faster-whisper + CTranslate2 + cuda/float16
+            wav_path,
+            model_size=active.model_size,
+            language=active.language,
+            log_prefix="douyin-asr",
+            settings=active,                                                      # 覆盖率兜底与 VAD 开关随 settings 一起生效
+        )
+    except Exception as exc:                                                      # 取流已成功，这里只可能是本地 ASR 问题
+        raise TranscriptionFailedError(str(exc)) from exc                          # 让调用方用不同退出码区分“换台机器再试”
     segments = [                                                                  # 保持旧 Douyin Markdown 需要的字段名
         {"start": round(seg["from"], 1), "text": seg["content"]}                  # 旧格式只有开始时间和文本
         for seg in asr_result["segments"]                                         # 共享模块输出标准 from/to/content
@@ -694,7 +704,7 @@ def main(argv: list = None) -> int:
 
     if not args.url:
         parse_cli_arguments(["--help"])
-        return 1
+        return EXIT_GENERIC_FAILURE                                               # 缺参数属于用法错误，不是平台故障
 
     language = "en" if args.english else "zh"
     settings = TranscriptionSettings(                                             # 转写参数在这里定型，缓存身份与转写共用同一份
@@ -745,13 +755,15 @@ def main(argv: list = None) -> int:
             })
 
         error_result = sanitize_diagnostics(error_result)                        # 解析出的嵌套诊断也必须脱敏。
+        exit_code = classify_failure(exc, (douyin_ssr.DouyinSSRDownloadError,))   # 取流/网络/转写分别给不同退出码
+        error_result["exit_code"] = exit_code                                    # 结构化失败里带上同一份判断，便于 Agent 决策
         if args.json:
             print(json.dumps(error_result, ensure_ascii=False, indent=2))
         else:
             print(f"[douyin] ERROR: {error_result['error']}", file=sys.stderr)
             for diagnostic in error_result.get("diagnostics", []):
                 print(f"[douyin] {diagnostic.get('step')}: {diagnostic.get('message')}", file=sys.stderr)
-        return 1
+        return exit_code
 
     if "metadata" in result and "_raw" in result["metadata"]:
         del result["metadata"]["_raw"]

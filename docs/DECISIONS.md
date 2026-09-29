@@ -446,6 +446,35 @@ Unable to resolve action `astral-sh/setup-uv@v10`, unable to find version `v10`
 
 ---
 
+## D18. 退出码是给 Agent 看的契约，必须能区分“该重试”和“该换机器”
+
+**决策**：退出码集中到 `agent-harness/.../utils/exit_codes.py` 一处定义，并由 `runtime_output.py` 对所有后端脚本可见：
+`0` 成功 / `1` 未分类 / `20` 分享页取流不可用 / `21` 需要 Cookie 授权 / `22` 网络超时 /
+`23` 画质不可用 / `24` 本地转写失败。`classify_failure()` 先按异常类型判断，再对第三方异常按文本兜底。
+抖音主入口 `douyin_extract.main()` 改用分类结果，并把同一个码写进结构化 JSON 的 `exit_code` 字段。
+
+**背景**：此前几乎每个失败都返回 `1`（B站脚本是“异常 = 2，后端声明错误 = 1”）。
+Agent 拿到 `1` 无法判断下一步该做什么：等一会儿重试、请用户授权 Cookie、降画质，还是换一台有 GPU 的机器。
+结果是两种坏行为——对永久失败反复重试，或对临时失败直接放弃。
+
+**边界与取舍**：
+- 只改**上层入口**（`douyin_extract.main`）和 **B站脚本的异常分支**。`douyin_ssr.main` 保持不变：
+  它是诊断后端，已有测试固定其“取流失败 = 1”的行为，改它属于另一件事，不混进本次改动。
+- B站脚本的异常分支保留 `2` 作为“未分类异常”的兜底，只有分类成功时才用 20/22/24，
+  避免静默改掉一个可能已被外部依赖的数字。
+- `classify_failure` 对 `requests` 这类第三方异常只能按模块名与文本兜底，这一点写在代码注释里，
+  不假装它是精确判断。
+
+**验证方式**：`tests/test_exit_codes.py` 断言各码互不重复、四类故障各自映射正确、
+抖音 `main()` 在取流失败与转写失败时分别返回 `20` 与 `24` 且 JSON `exit_code` 与之一致、
+转写步骤把底层异常包装成 `TranscriptionFailedError`、B站未分类异常仍返回 `2`、
+CLI 授权码与后端引用同一常量。
+
+**重新评估触发条件**：如果宿主（Codex/Claude）开始按退出码做自动重试策略，需要把码表写进 SKILL.md 并冻结；
+如果 `douyin_ssr.py` 也需要独立交给 Agent 使用，再统一它的退出码。
+
+---
+
 ## 决策索引
 
 | 编号 | 主题 | 是否可推翻 |
@@ -467,3 +496,4 @@ Unable to resolve action `astral-sh/setup-uv@v10`, unable to find version `v10`
 | D15 | CI action 按各自 tag 策略引用 | 可（若改用 commit SHA） |
 | D16 | VAD 丢字必须检测并局部补转 | 可（若上游修掉 VAD 误判） |
 | D17 | 缓存身份含转写参数与引擎版本 | 可（若改为整体哈希） |
+| D18 | 退出码区分故障类别 | 可（若宿主按码自动重试） |
