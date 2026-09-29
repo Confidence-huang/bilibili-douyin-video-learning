@@ -125,18 +125,30 @@ def _run_faster_whisper(
     log(f"[{log_prefix}] Loading faster-whisper '{settings.model_size}' on {device}/{compute_type}...")
     log(f"[{log_prefix}] Python executable: {sys.executable}")
     log(f"[{log_prefix}] Python prefix: {sys.prefix}")
-    model = WhisperModel(settings.model_size, device=device, compute_type=compute_type)  # 模型只负责本次音频的识别
 
-    log(f"[{log_prefix}] Transcribing with faster-whisper (language={settings.language})...")
-    reading, transcription_info = model.transcribe(
-        str(audio_path),                                                          # faster-whisper 接受字符串路径
-        language=settings.language,                                               # 固定中文可减少自动语言识别开销
-        task="transcribe",                                                        # 学习笔记只需要转写，不做翻译
-        beam_size=settings.beam_size,                                             # 由 settings 决定，逐字稿场景可调大
-        vad_filter=settings.vad_filter,                                           # 跳过课堂静音和空白段，减少无效解码
-        condition_on_previous_text=settings.condition_on_previous_text,            # 降低长课串词污染
-    )
-    segments = _reading_to_segments(reading)                                      # 第一遍正文
+    def load_model(active_device: str, active_compute_type: str):
+        log(f"[{log_prefix}] Transcribing with faster-whisper (language={settings.language})...")
+        active_model = WhisperModel(settings.model_size, device=active_device, compute_type=active_compute_type)
+        reading, info = active_model.transcribe(                                   # 惰性迭代：必须在这里消费才会暴露设备错误
+            str(audio_path),                                                          # faster-whisper 接受字符串路径
+            language=settings.language,                                               # 固定中文可减少自动语言识别开销
+            task="transcribe",                                                        # 学习笔记只需要转写，不做翻译
+            beam_size=settings.beam_size,                                             # 由 settings 决定，逐字稿场景可调大
+            vad_filter=settings.vad_filter,                                           # 跳过课堂静音和空白段，减少无效解码
+            condition_on_previous_text=settings.condition_on_previous_text,            # 降低长课串词污染
+        )
+        return active_model, _reading_to_segments(reading), info                     # 返回模型、第一遍正文与语言信息
+
+    device_fallback = None                                                        # 记录“声称有 CUDA 但实际不可用”的真实原因
+    try:
+        model, segments, transcription_info = load_model(device, compute_type)     # 构造 + 首次解码一起验证设备
+    except Exception as exc:
+        if device != "cuda" or requested_device == "cuda":                        # 显式要求 CUDA 时不静默降级，交给上层报错
+            raise
+        log(f"[{log_prefix}] CUDA unusable ({exc}); retrying on cpu/int8")          # 例如缺 libcublas.so.12 的 CPU 机器
+        device, compute_type = "cpu", "int8"                                       # 与 _choose_ctranslate2_device 的无 GPU 分支保持一致
+        device_fallback = str(exc)                                                # 写进诊断，避免“以为在用 GPU”
+        model, segments, transcription_info = load_model(device, compute_type)     # 同一份音频改用 CPU 再跑一遍
 
     def transcribe_window(clip_path: Path) -> list[dict]:
         window_reading, _ = model.transcribe(                                      # 补转窗口一律关闭 VAD：这正是它上次丢字的原因
@@ -155,10 +167,12 @@ def _run_faster_whisper(
         "device": device,                                                          # 应为 cuda，除非显式 CPU 或无 GPU
         "compute_type": compute_type,                                              # GPU 默认 float16
         "cuda_devices": cuda_devices,                                              # 诊断字段，用于确认独显可见
+        "device_fallback": device_fallback,                                        # 非空说明 CUDA 不可用、已改用 CPU
         "language": getattr(transcription_info, "language", settings.language),     # 模型报告的语言
         "language_probability": getattr(transcription_info, "language_probability", None),  # 语言置信度
         "segments": segments,                                                      # 标准分段正文
-        "diagnostics": [_new_asr_diagnostic("faster-whisper", True, "ok", device=device, compute_type=compute_type)],
+        "diagnostics": [_new_asr_diagnostic("faster-whisper", True, "ok", device=device, compute_type=compute_type,
+                                            device_fallback=device_fallback)],
     }
     return result, transcribe_window
 
@@ -281,9 +295,9 @@ def transcribe_audio_file(
                 ),
             )                                                                      # 让调用方知道为什么动用了旧路线
             result = fallback_result                                               # 后续覆盖率校验对新旧路线一视同仁
-        except Exception:
-            log(f"[{log_prefix}] openai-whisper fallback also failed")
-            raise
+        except Exception as fallback_error:
+            log(f"[{log_prefix}] openai-whisper fallback also failed: {fallback_error}")
+            raise faster_error from fallback_error                                 # 保留根因：真正失败的是主路线，兜底只是没救回来
 
     if not active.coverage_check:                                                  # 调用方显式关闭校验时保持历史行为
         return _finalize(result, {"segments": result["segments"], "report": {"checked": False, "skipped_reason": "coverage check disabled"}})

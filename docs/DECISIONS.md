@@ -475,6 +475,41 @@ CLI 授权码与后端引用同一常量。
 
 ---
 
+## D19. 设备可用性必须由一次真实解码证明，而不是由 `get_cuda_device_count()` 声明
+
+**决策**：`_run_faster_whisper` 把“构造模型 + 第一遍解码”放进同一个 `try`。
+如果自动选中的 `cuda`/`float16` 组合真的跑不起来，就改用 `cpu`/`int8` 重跑一遍，
+并把原因写进结果字段 `device_fallback` 和诊断条目。用户显式传 `device="cuda"` 时不降级。
+另外，openai-whisper 兜底也失败时改为 `raise faster_error from fallback_error`，**保留根因**。
+
+**背景（WSL 真机复现）**：在 WSL2（`6.18.26.1-microsoft-standard-WSL2`）上 GPU 直通是好的——
+`/dev/dxg` 存在、`/usr/lib/wsl/lib/libcuda.so.1` 在加载器路径里、`ctranslate2.get_cuda_device_count()` 返回 1。
+缺的是 **CUDA 运行时库**：WSL 驱动只提供 `libcuda.so`，不含 cuBLAS / cuDNN。于是链路变成：
+
+1. 设备枚举通过 → 代码选中 `cuda`/`float16`；
+2. `WhisperModel(...)` 构造也通过；
+3. **第一次 `encode()` 才抛** `Library libcublas.so.12 is not found or cannot be loaded`；
+4. 旧兜底是 openai-whisper，而 Linux 档案不装 torch → 整条 ASR 失败，而 CPU/int8 本可以跑完。
+
+**关键细节**：错误发生在第一次解码，不在构造期。只包住 `WhisperModel(...)` 的 try/except 抓不到它——
+第一版修复就是这样漏掉的，是端到端实测把它抓了出来。
+
+**代价**：多包一层会把“能加载但算不动”也算作设备不可用，于是多付一次 CPU 模型加载；
+换来的是拿到正文，而不是整条失败。
+
+**验证方式（两个方向都有真实证据）**：
+- 缺 CUDA 运行时：日志显示 `CUDA unusable (Library libcublas.so.12 ...); retrying on cpu/int8`，
+  抖音 259.77 秒音频与 B站 30.6 秒视频都在 `cpu/int8` 下跑通（B站结果 `status: ok`、`device: cpu`）。
+- CUDA 运行时齐全（`pip install nvidia-cublas-cu12 nvidia-cudnn-cu12`）：同一台机器上
+  `large-v3` + `cuda/float16` 转写 259.77 秒音频耗时 **49.3 秒（5.27× 实时）**，`device_fallback` 为 `None`，
+  说明没有误判降级。
+- 单元测试：`test_cross_platform.py` 三个用例分别覆盖惰性失败降级、构造期失败降级、显式 CUDA 不降级。
+
+**重新评估触发条件**：如果 ctranslate2 提供官方的设备自检 API，或宿主机保证 CUDA 运行时随驱动一起提供，
+可改成启动时一次性探测并缓存结果，省掉失败时的那次重跑。
+
+---
+
 ## 决策索引
 
 | 编号 | 主题 | 是否可推翻 |
@@ -497,3 +532,4 @@ CLI 授权码与后端引用同一常量。
 | D16 | VAD 丢字必须检测并局部补转 | 可（若上游修掉 VAD 误判） |
 | D17 | 缓存身份含转写参数与引擎版本 | 可（若改为整体哈希） |
 | D18 | 退出码区分故障类别 | 可（若宿主按码自动重试） |
+| D19 | 设备可用性由真实解码证明 | 可（若上游提供自检 API） |
