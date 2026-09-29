@@ -12,7 +12,11 @@ import tempfile
 import argparse
 
 from speech_to_text import transcribe_audio_file                                  # 统一使用 faster-whisper 优先的本机 ASR 入口
-from runtime_output import log                                                   # 进度只写 stderr，保持 --json stdout 纯净。
+from runtime_output import (  # 退出码契约：Agent 要能区分"取流失败"与"本机转写失败"
+    EXIT_SHARE_PAGE_UNAVAILABLE,
+    EXIT_TRANSCRIPTION_FAILED,
+    log,
+)                                                   # 进度只写 stderr，保持 --json stdout 纯净。
 from media_tools import find_ffmpeg                                              # yt-dlp 显式使用同一跨平台 FFmpeg。
 
 
@@ -102,7 +106,7 @@ def bilibili_transcribe(
     if output_dir is None:
         output_dir = tempfile.mkdtemp(prefix="bilibili_whisper_")
 
-    result = {"bvid": bvid, "status": "error", "segments": [], "error": None}
+    result = {"bvid": bvid, "status": "error", "segments": [], "error": None, "exit_code": 0}
 
     # Step 1: Download audio
     log(f"\n{'='*50}")
@@ -110,6 +114,7 @@ def bilibili_transcribe(
     audio_path, error = download_audio(bvid, output_dir, cookies)
     if error:
         result["error"] = f"Audio download failed: {error}"
+        result["exit_code"] = EXIT_SHARE_PAGE_UNAVAILABLE                         # 取流失败：可重试或换来源
         log(f"[pipeline] ERROR: {result['error']}")
         return result
 
@@ -138,6 +143,7 @@ def bilibili_transcribe(
         )
     except Exception as e:
         result["error"] = f"ASR transcription failed: {str(e)}"
+        result["exit_code"] = EXIT_TRANSCRIPTION_FAILED                          # 取流成功、本机 ASR 失败
         log(f"[pipeline] ERROR: {result['error']}")
         return result
 
@@ -192,3 +198,5 @@ if __name__ == "__main__":
                 print(f"  ... ({len(result['segments'])-10} more)")
         else:
             print(f"\nERROR: {result.get('error', 'Unknown error')}")
+
+    raise SystemExit(result.get("exit_code") or 0)                                # 失败必须让调用方从退出码看得出来

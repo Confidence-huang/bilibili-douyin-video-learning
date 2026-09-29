@@ -156,3 +156,48 @@ def test_cli_and_backend_share_one_exit_code_contract():
     from cli_anything.video_learning import video_learning_cli  # CLI 是 Agent 最终看到的退出码出口。
 
     assert video_learning_cli.COOKIE_PERMISSION_EXIT_CODE == exit_codes.EXIT_COOKIE_PERMISSION_REQUIRED  # 不允许两处各写一份。
+
+
+# --- B站取流失败必须返回"取流不可用"，而不是 0 ---
+def test_bilibili_download_failure_sets_share_page_code(monkeypatch, tmp_path):
+    transcribe = load_script("transcribe_bilibili")
+    monkeypatch.setattr(transcribe, "download_audio", lambda bvid, output_dir, cookies=None: (None, "fixture: no audio"))
+
+    result = transcribe.bilibili_transcribe("BV1111111111", output_dir=str(tmp_path))
+
+    assert result["status"] == "error"
+    assert result["exit_code"] == exit_codes.EXIT_SHARE_PAGE_UNAVAILABLE  # 过去这里恒为 0，Agent 看不出失败
+
+
+# --- B站本机 ASR 失败必须与取流失败区分 ---
+def test_bilibili_asr_failure_sets_transcription_code(monkeypatch, tmp_path):
+    transcribe = load_script("transcribe_bilibili")
+    audio = tmp_path / "audio.m4a"
+    audio.write_bytes(b"fake")
+    monkeypatch.setattr(transcribe, "download_audio", lambda bvid, output_dir, cookies=None: (str(audio), None))
+    monkeypatch.setattr(
+        transcribe, "transcribe_audio_file",
+        lambda *a, **k: (_ for _ in ()).throw(exit_codes.TranscriptionFailedError("no CUDA device")),
+    )
+
+    result = transcribe.bilibili_transcribe("BV1ntah6TEe9", output_dir=str(tmp_path))
+
+    assert result["status"] == "error"
+    assert result["exit_code"] == exit_codes.EXIT_TRANSCRIPTION_FAILED  # 换机器能解决，不是平台问题
+
+
+# --- 成功时退出码必须是 0 ---
+def test_bilibili_success_keeps_exit_code_zero(monkeypatch, tmp_path):
+    transcribe = load_script("transcribe_bilibili")
+    audio = tmp_path / "audio.m4a"
+    audio.write_bytes(b"fake")
+    monkeypatch.setattr(transcribe, "download_audio", lambda bvid, output_dir, cookies=None: (str(audio), None))
+    monkeypatch.setattr(transcribe, "transcribe_audio_file", lambda *a, **k: {
+        "engine": "faster-whisper", "device": "cpu", "compute_type": "int8",
+        "segments": [{"from": 0.0, "to": 1.0, "content": "正文"}], "diagnostics": [],
+    })
+
+    result = transcribe.bilibili_transcribe("BV1ntah6TEe9", output_dir=str(tmp_path))
+
+    assert result["status"] == "ok"
+    assert result["exit_code"] == 0
