@@ -46,6 +46,35 @@
 - 设备声称可用但实际不能解码时（惰性或构造期失败）降级到 `cpu/int8` 并保留原因；
   显式 `device="cuda"` 不静默降级；兜底也失败时保留根因错误。
 
+### 分段形状与保真度
+
+- 两套历史字段名（规范 `start/end/text` 与 ASR `from/to/content`）都能识别、往返、互转。
+- 未知形状与缺时间戳必须显式失败，并打印实际字段名；可选置信度不得被伪造。
+- 时间轴自检能发现重叠、倒置与空文本；SRT 时间戳合法且折行不丢字。
+- `verbatim` 模式一个词都不删，`cleaned` 才删填充词且逐条报数；短碎片合并在两趟处理后真实生效（含首段碎片）。
+- 切块脚本能直接吃 ASR 形状（旧的 KeyError 回归），产出能被 `build_notes` 消费。
+- `--emit` 参数校验、多格式产出、完整转录的授权边界、缓存身份区分保真度与归一模式。
+
+### 多源交叉校验
+
+- 完全一致时零差异；同音替换带正确时间范围；单字差异默认必报且可显式抬高阈值过滤。
+- 次源整段缺失被指名到时间范围；真实丢字区间（196.24–201.84s）被完整报出。
+- 三种输入格式（规范 JSON / ASR JSON / SRT）；`--fail-on-difference` 返回 25；坏输入清晰失败。
+
+### 置信度与文本归一化
+
+- 逐段置信度被采集，只有低于阈值的区间进入 `low_confidence_spans`；阈值可调且进缓存身份。
+- 繁简归一：注入转换器生效；缺 OpenCC 时 `auto` 降级只记录、`on` 显式报错、`off` 不转换。
+- 停顿标点只在段边界插入，段内文字原样保留，已有标点不重复添加。
+
+### CUDA 可用性
+
+- 从解释器前缀推导 `nvidia/*/lib` 目录；四个运行时库都能被发现；缺库时给出可执行的安装建议。
+- 找到但加载失败要报错且不断链；`LD_LIBRARY_PATH` 幂等追加。
+- 可用性三态（无设备 / 设备可见但缺库 / 可用）各自给出不同结论。
+- **ASR 入口的调用顺序必须是 prepare → choose_device → model**（真实故障的修复点）。
+- `doctor` 报告 `usable` 与 `guidance`；没有 runtime 时保持只报可见性的历史行为。
+
 ### 退出码契约
 
 - 各类别退出码互不重复，成功码为 0，已有授权码仍为 21。
@@ -88,7 +117,7 @@
 - Linux CLI Python：`${XDG_DATA_HOME:-$HOME/.local/share}/bilibili-video-learning/runtime/bin/python`
 - Windows CLI Python：`<skill-root>\.venv-gpu\Scripts\python.exe`
 - 安装方式：平台安装器调用 `uv pip install --python <CLI-Python> --no-deps -e <skill-root>/agent-harness`
-- 安装入口：`cli-anything-video-learning` 1.5.0
+- 安装入口：`cli-anything-video-learning` 1.6.0
 - 运行约束：`CLI_ANYTHING_FORCE_INSTALLED=1`，测试不得回退到源码模块
 
 执行命令：
@@ -100,18 +129,18 @@ python -m pytest cli_anything/video_learning/tests -q
 最终结果：
 
 ```text
-114 passed, 1 skipped in 0.90s
+163 passed, 1 skipped in 1.08s
 ```
 
 验收覆盖：
 
-- 114 个离线/安装态测试通过，覆盖安全 yt-dlp 参数、严格分 P、字幕解析、Cookie 风险授权、默认省略全文、诊断脱敏、原子写入、来源身份、抖音 SSR/缓存和跨平台运行时入口。
+- 163 个离线/安装态测试通过，覆盖安全 yt-dlp 参数、严格分 P、字幕解析、Cookie 风险授权、默认省略全文、诊断脱敏、原子写入、来源身份、抖音 SSR/缓存和跨平台运行时入口。
 - 1.5.0 新增三组断言：ASR 覆盖率兜底（`test_asr_coverage.py`，含真实 VAD 丢字 fixture 的 196.24–201.84s 空档、
   静音不补转、预算封顶、超长窗口跳过、重叠区间只算一次、补转窗口关闭 VAD、VAD 参数真实下传、关闭校验时保持原样）；
   退出码契约（`test_exit_codes.py`，含抖音 `main()` 的 20/24 码与 JSON 一致性、B站异常分支保留 2 号兜底）；
   CUDA 不可用时的降级（`test_cross_platform.py`，覆盖惰性解码失败、构造期失败、显式 CUDA 不降级、兜底失败时保留根因）。
 - 轻量 CI 环境跳过唯一要求完整 ASR 运行时的 doctor 测试；默认套件不联网、不下载媒体、不读取浏览器 Cookie，也不启动模型推理。
-- 隔离 Linux 完整安装验收通过：依赖一致、CLI 1.5.0、本地合成 MP4 转 16 kHz 单声道 WAV、doctor 找到外置 runtime、yt-dlp、imageio-ffmpeg、faster-whisper 和 CTranslate2。
+- 隔离 Linux 完整安装验收通过：依赖一致、CLI 1.6.0、本地合成 MP4 转 16 kHz 单声道 WAV、doctor 找到外置 runtime、yt-dlp、imageio-ffmpeg、faster-whisper 和 CTranslate2。
 - Skill Creator 校验通过；Skill Lifecycle Manager 的 Static、Runtime、Behavior 三层验证均通过。
 - Windows CUDA 完整安装与真实 GPU ASR 留给 Windows GitHub Actions 和显式授权的真实硬件 smoke；本地 Linux 验收不冒充 Windows GPU 证据。
 - 1.5.0 的真实端到端复核（不进入离线套件，证据留在本轮记录中）：抖音 259.77 秒音频与 B站 30.6 秒视频

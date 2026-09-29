@@ -2,6 +2,53 @@
 
 All notable public changes are recorded here.
 
+## 1.6.0 - 2026-09-29
+
+- **One canonical segment shape.** Subtitle parsing produced `start/end/text` while ASR
+  produced `from/to/content`, and `clean_transcript.py` only understood the first, so it
+  raised KeyError on every Douyin transcript and neither it nor `chunk_transcript.py` was
+  ever called by production code. `scripts/normalize_transcript.py` is now the single
+  adapter (canonical `start/end/text`, optional `confidence`), owns plain-text and SRT
+  rendering, and raises a named error naming the fields it saw instead of guessing.
+  Results saved before this release carry only `start/text` and are rejected with a hint to
+  re-run; the cache schema moves to 4. See D20.
+- **Fidelity is explicit.** The old cleaner dropped any segment whose text was exactly a
+  filler word, including `这个` — which is semantic in "这个社会对于好男人的定义".
+  `--fidelity verbatim` (default) never deletes a word; `cleaned` also drops filler-only
+  segments and reports each one. The Douyin pipeline now actually runs the cleaning step.
+  See D20.
+- **Multi-format emit.** `--emit md,json,srt,txt` writes the requested artifacts atomically
+  next to the Markdown. SRT and TXT are full transcripts, so they keep the existing
+  `--include-transcript` boundary.
+- **Cross-validation instead of trusting one model.** `scripts/verify_transcript.py` aligns
+  two sources character by character and prints the exhaustive difference list with
+  timestamps (type, range, both texts). `--min-span-chars` defaults to 1 because homophone
+  differences are often a single character (`血/雪`). `--fail-on-difference` returns the new
+  `EXIT_SOURCES_DISAGREE` (25). On the real video it reports similarity 0.9718 against the
+  corrected transcript and independently reproduces two findings previously reached by hand.
+  See D21.
+- **Per-segment confidence.** `avg_logprob`, `no_speech_prob` and `compression_ratio` are
+  kept, and the result lists `low_confidence_spans` plus an `asr_confidence` diagnostic. The
+  threshold lives in `TranscriptionSettings` (default -1.0, matching whisper) and therefore
+  in the cache identity. Nothing is rewritten automatically.
+- **Optional text normalisation.** `--simplify auto/on/off` converts Traditional to
+  Simplified when OpenCC is installed, records why when it is not, and only fails when
+  explicitly required. Pause punctuation inserts `，`/`。` only at segment boundaries and
+  never touches text inside a segment, feeding `readable_text` while `full_text` stays
+  verbatim. The `zh-normalize` extra carries OpenCC. See D22.
+- **WSL GPU actually works.** The WSL driver ships `libcuda.so` but not cuBLAS/cuDNN, so
+  device enumeration succeeded while the first `encode()` failed with
+  "Library libcublas.so.12 is not found". `scripts/cuda_runtime.py` discovers and preloads
+  the `nvidia/*` wheels with `ctypes.CDLL(..., RTLD_GLOBAL)` in dependency order before
+  CTranslate2 is imported (mutating `LD_LIBRARY_PATH` cannot help the current process, and
+  the load order matters). The `gpu-cuda12` extra installs the three wheels; `doctor status`
+  now reports `usable` and an actionable `guidance` instead of mere visibility. See D23.
+- **Failure classification fix.** The most common real failure — both public download paths
+  failing — raised a plain RuntimeError and still exited 1. It now raises
+  `DouyinDownloadUnavailableError` and exits 20. See D18.
+- Tests: the offline suite grows from 114 to 163 passing cases; still no model, ffmpeg,
+  network access or browser cookies required.
+
 ## 1.5.0 - 2026-09-29
 
 - **ASR coverage guard.** `scripts/speech_to_text.py` now validates every pass before
