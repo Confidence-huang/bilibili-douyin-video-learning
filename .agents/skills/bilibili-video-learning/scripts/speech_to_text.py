@@ -16,6 +16,7 @@ from pathlib import Path                                                        
 from typing import NamedTuple                                                    # 参数对象必须能被测试加载器动态加载（见 D16）
 
 import asr_coverage                                                              # 覆盖率校验与局部补转（不依赖任何模型）
+import asr_refine                                                                # 可疑区间的定向二次解码（D27）
 import asr_lexicon                                                              # 领域词表（见 D26）
 import cuda_runtime                                                              # CUDA 运行时库预加载（见 D23）
 from runtime_output import log                                                   # ASR 进度写 stderr，JSON 调用方只读 stdout。
@@ -349,6 +350,25 @@ def _finalize(result: dict, guard: dict, *, low_confidence_threshold: float) -> 
     return result
 
 
+# --- 对可疑区间做定向二次解码：只替换判定为更好的区间（D27） ---
+def _refine_result(audio_path: Path, guard: dict, engine_runner, settings: "TranscriptionSettings") -> tuple[dict, list]:
+    import tempfile                                                               # 切片落在临时目录，用完即删
+
+    refine_settings = asr_refine.RefineSettings(logprob_threshold=settings.low_confidence_logprob)
+
+    def refine_window(start: float, end: float) -> list[dict]:
+        with tempfile.TemporaryDirectory(prefix="asr-refine-") as workspace:
+            clip_path = Path(workspace) / "window.wav"
+            asr_coverage.cut_audio_window(audio_path, start, end, clip_path)       # 复用覆盖率补转的切窗口实现
+            return engine_runner(clip_path)                                        # 复用同一引擎回调，解码条件由引擎决定
+
+    diagnostics: list = []
+    refined = asr_refine.apply_refinement(guard["segments"], refine_window, refine_settings, diagnostics)
+    guard["segments"] = refined["segments"]                                        # 只替换被接受的区间，其余逐字不动
+    guard["refine_report"] = refined["report"]
+    return guard, diagnostics
+
+
 # --- 对外统一转写入口 ---
 def transcribe_audio_file(
     audio_path: str | Path,
@@ -394,19 +414,38 @@ def transcribe_audio_file(
             log(f"[{log_prefix}] openai-whisper fallback also failed: {fallback_error}")
             raise faster_error from fallback_error                                 # 保留根因：真正失败的是主路线，兜底只是没救回来
 
-    if not active.coverage_check:                                                  # 调用方显式关闭校验时保持历史行为
-        return _finalize(result,
-                         {"segments": result["segments"],
-                          "report": {"checked": False, "skipped_reason": "coverage check disabled"}},
-                         low_confidence_threshold=active.low_confidence_logprob)
+    if not active.coverage_check:                                                  # 关闭校验时保留第一遍结果，但重解仍可独立生效
+        guard = {"segments": result["segments"],
+                 "report": {"checked": False, "skipped_reason": "coverage check disabled"}}
+    else:
+        guard = _apply_coverage(audio, result, engine_runner, active)
 
-    guard = asr_coverage.apply_coverage_guard(
+    return _finish(result, audio, guard, engine_runner, active, log_prefix)
+
+
+# --- 覆盖率校验（独立一步，便于与定向重解正交组合） ---
+def _apply_coverage(audio: Path, result: dict, engine_runner, settings: "TranscriptionSettings") -> dict:
+    return asr_coverage.apply_coverage_guard(
         audio,
         result["segments"],
         transcribe_window=engine_runner,                                           # 由引擎注入“窗口 -> 分段”的实现
-        coverage_floor=active.coverage_floor,
-        gap_min_seconds=active.gap_min_seconds,
-        speech_dbfs=active.speech_dbfs,
-        max_windows=active.max_retry_windows,
+        coverage_floor=settings.coverage_floor,
+        gap_min_seconds=settings.gap_min_seconds,
+        speech_dbfs=settings.speech_dbfs,
+        max_windows=settings.max_retry_windows,
     )
-    return _finalize(result, guard, low_confidence_threshold=active.low_confidence_logprob)
+
+
+# --- 收尾：定向重解 → 汇总字段 → 诊断（与覆盖率校验正交） ---
+def _finish(result: dict, audio: Path, guard: dict, engine_runner, settings: "TranscriptionSettings",
+            log_prefix: str) -> dict:
+    refine_diagnostics: list = []
+    if settings.refine_low_confidence:                                             # quality 档位才开启：多花时间换准确率
+        log(f"[{log_prefix}] Refining suspicious spans (targeted re-decode)...")
+        guard, refine_diagnostics = _refine_result(audio, guard, engine_runner, settings)
+
+    finalized = _finalize(result, guard, low_confidence_threshold=settings.low_confidence_logprob)
+    finalized["diagnostics"].extend(refine_diagnostics)                            # 重解的接受/拒绝理由都要留痕
+    if guard.get("refine_report") is not None:
+        finalized["refine_report"] = guard["refine_report"]                        # 逐段替换理由，供人工复核
+    return finalized
