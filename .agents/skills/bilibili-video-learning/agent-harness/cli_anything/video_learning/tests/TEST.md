@@ -101,6 +101,16 @@
 - 无音轨：用 ffmpeg 现场生成有/无音轨真实文件双向验证；`extract_audio` 抛 `NoAudioTrackError`；
   通用入口返回 27；退出码互不重复。
 
+### 模块级 CLI 冒烟（每个脚本 × 两条检查）
+
+- 模块级用到的每个"模块名"都必须真实导入（内置名除外）——D45 的 NameError 形态。
+- 会让导入即执行主路径的调用（`main`/`cli_main`/`run`/`parse_args`）必须有 `__main__` 守卫。
+- 纯调用（`Path(...)`/`re.compile(...)`/`sys.path.insert(...)`）**不算**风险，避免假阳性。
+
+### 金标闸门（CI）
+
+- 两个平台的 CI 都会跑 `run_benchmark.py`，用真实金标 + 裁剪 fixture，`--max-cer 0.05` 直接卡住回归。
+
 ### CLI 主路径的导入守卫
 
 - `transcribe_bilibili` 必须绑定 `speech_to_text`（模块），并真的能解析一次 `auto`——

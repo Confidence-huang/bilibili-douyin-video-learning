@@ -2,6 +2,26 @@
 
 All notable public changes are recorded here.
 
+## 1.22.0 - 2026-09-29
+
+- **The regression class from 1.19.0 is now guarded.** tests/test_cli_smoke.py walks every script's
+  module-level body with AST, imports the module and asserts that each `name.attribute` it uses
+  actually exists - the generalised form of the NameError that passed 343 tests. It never executes a
+  main path, so it needs no network, model or ffmpeg and can run in CI. A second check requires
+  `main`/`cli_main`/`run`/`parse_args` calls at module level to sit behind a `__main__` guard. See D46.
+- **Two false positives in that test's first version, both narrowed and recorded.** It flagged
+  `str` as an unimported module (a builtin is not a module) and flagged seven scripts for
+  "unguarded module-level calls" when `Path(__file__).resolve().parent`, `re.compile(...)` and
+  `sys.path.insert(...)` are exactly the calls that *should* run at import time. A guard test that
+  cries wolf gets switched off, so the heuristics were tightened rather than the assertions relaxed.
+- **Real golds now gate every pull request.** The actual ASR outputs were trimmed into fixtures
+  (segments plus context, 1-5 KB, no audio needed) and both CI jobs run three-quarters of the
+  benchmark table: `run_benchmark.py --case bili1-large --case bili2-large --max-cer 0.05`. Any
+  change that pushes CER past 0.05 turns the PR red. The `small` tiers are deliberately excluded
+  from the gate since they sit at 0.11-0.23 - a gate should only cover tiers that are supposed to
+  pass. docs/ACCEPTANCE.md documents the step and the fixtures.
+- Tests: **427 passing** offline cases.
+
 ## 1.21.0 - 2026-09-29
 
 - **A runtime regression that 343 passing tests did not catch.** v1.19.0 broke

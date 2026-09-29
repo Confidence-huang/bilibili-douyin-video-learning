@@ -1429,6 +1429,38 @@ v1.19.0 的 `transcribe_bilibili.py` **在运行时崩了**：文件只 `from sp
 
 ---
 
+## D46. 把"只有真跑才暴露"的回归挡在合并前：模块级 CLI 冒烟测试 + 金标闸门进 CI
+
+**决策一：`tests/test_cli_smoke.py`——用 AST 找出"模块级执行体里用到的模块名"，导入后逐个断言存在。**
+这是 D45 那个 `NameError`（只 from-import 函数却调用模块级属性）的**通用化守卫**：
+- 覆盖"导入缺失"这一类错误，而**不执行主路径**（无网络、无模型、无 ffmpeg），所以能在 CI 跑；
+- 顺带断言"会让导入即执行主路径的调用（`main`/`cli_main`/`run`/`parse_args`）必须有 `__main__` 守卫"。
+
+**第一版暴露了两处假阳性，都已收紧，并记录原因**：
+1. `eval_asr.py 模块级用到但未导入：['str']`——`str` 是**内置名**，不是模块 → 排除 `builtins`；
+2. 7 个脚本被报"模块级函数调用没有 `__main__` 守卫"——但 `Path(__file__).resolve().parent`、
+   `re.compile(...)`、`sys.path.insert(...)` 这类**纯调用本就应该在导入时执行**（否则常量都没法定义）。
+   启发式改为只盯"会让导入即执行主路径"的调用名。
+   **教训：守卫测试的假阳性会让人把它关掉，所以收紧启发式比放宽断言更重要。**
+
+**决策二：金标闸门进 CI（ubuntu + windows 两个 job）。**
+把真实 ASR 产出裁剪成 fixture（只留分段与上下文，**1–5 KB**，不需要音频/模型）：
+`bili1_large.json`、`bili1_small.json`、`bili2_large.json`、`bili2_small.json`。
+CI 执行：
+
+```bash
+run_benchmark.py --case "bili1-large=<fixtures>/bili1_large.json:bilibili-BV1ntah6TEe9.json" \
+                 --case "bili2-large=<fixtures>/bili2_large.json:bilibili-BV1Kyas6wEuz.json" --max-cer 0.05
+```
+
+即**每次 PR 都会用真实金标验证**，任何让 CER 劣化到 0.05 以上的改动直接变红。
+`small` 档位故意不设闸门（它本来就在 0.11–0.23），只作对照——**闸门只盯"应该达标"的档位**。
+
+**重新评估触发条件**：如果将来把 `large` 换成更强模型，应先调低闸门再改；
+如果 fixture 数量增长到需要目录约定，改为 `--case-file` 读清单。
+
+---
+
 ## 决策索引
 
 | 编号 | 主题 | 是否可推翻 |
@@ -1478,3 +1510,4 @@ v1.19.0 的 `transcribe_bilibili.py` **在运行时崩了**：文件只 `from sp
 | D43 | 模型默认 auto（有 CUDA 用 large）；doctor assets | 可（出现 CPU 加速方案时重测） |
 | D44 | 跨金标回归命令 / 验收清单 / 标点可选后端 | 可（用例增多则改配置文件） |
 | D45 | CLI 主路径回归 + B站 第二支金标 | 可（加入 CLI 冒烟测试后重评） |
+| D46 | 模块级 CLI 冒烟测试 + 金标闸门进 CI | 可（模型升级时先调闸门） |

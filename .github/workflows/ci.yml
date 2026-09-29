@@ -58,6 +58,12 @@ jobs:
           export VIDEO_LEARNING_SKIP_INSTALLED_RUNTIME_TESTS=1
           export PATH="$PWD/.ci-venv/bin:$PATH"
           .ci-venv/bin/python -m pytest -q "$skill_root/agent-harness/cli_anything/video_learning/tests"
+      - name: Cross-gold benchmark gate (real golds, committed hypotheses)
+        run: |
+          .ci-venv/bin/python "$skill_root/scripts/run_benchmark.py" \
+            --case "bili1-large=$skill_root/agent-harness/cli_anything/video_learning/tests/fixtures/bili1_large.json:bilibili-BV1ntah6TEe9.json" \
+            --case "bili2-large=$skill_root/agent-harness/cli_anything/video_learning/tests/fixtures/bili2_large.json:bilibili-BV1Kyas6wEuz.json" \
+            --max-cer 0.05
 
       - name: Smoke-test the installed CLI entrypoint
         run: |
@@ -117,6 +123,12 @@ jobs:
           $env:VIDEO_LEARNING_SKIP_INSTALLED_RUNTIME_TESTS = "1"
           $env:PATH = "$(Resolve-Path '.\.ci-venv\Scripts');$env:PATH"
           .\.ci-venv\Scripts\python.exe -m pytest -q "$skillRoot\agent-harness\cli_anything\video_learning\tests"
+      - name: Cross-gold benchmark gate (real golds, committed hypotheses)
+        run: |
+          .\.ci-venv\Scripts\python.exe "$skillRoot\scripts\run_benchmark.py" `
+            --case "bili1-large=$skillRoot\agent-harness\cli_anything\video_learning\tests\fixtures\bili1_large.json:bilibili-BV1ntah6TEe9.json" `
+            --case "bili2-large=$skillRoot\agent-harness\cli_anything\video_learning\tests\fixtures\bili2_large.json:bilibili-BV1Kyas6wEuz.json" `
+            --max-cer 0.05
 
       - name: Run portable lifecycle probes
         shell: pwsh

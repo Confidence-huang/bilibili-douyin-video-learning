@@ -33,6 +33,20 @@ python .agents/skills/bilibili-video-learning/scripts/run_benchmark.py \
 | `bilibili-BV1ntah6TEe9` | 安静的 30 秒教程 | **0.0085** | 0.1111 | agent-verified |
 | `bilibili-BV1Kyas6wEuz` | 109 秒叙述 + 表情包配音 + 音乐 | **0.0051** | 0.2298 | 后半段 22 行 unresolved；**标点抄自 large，故 punct_f1=1.0 是同义反复** |
 
+### CI 闸门（每次 PR 都会跑）
+
+`.github/workflows/ci.yml` 的 ubuntu 与 windows 两个 job 都会执行：
+
+```bash
+run_benchmark.py \
+  --case "bili1-large=<fixtures>/bili1_large.json:bilibili-BV1ntah6TEe9.json" \
+  --case "bili2-large=<fixtures>/bili2_large.json:bilibili-BV1Kyas6wEuz.json" \
+  --max-cer 0.05
+```
+
+产出 fixture 是**真实 ASR 结果的裁剪版**（只留分段与上下文，1–5 KB），因此**不需要音频/模型**即可守金标。
+`small` 档位故意不设闸门（它的 CER 本来就高于 0.05），只作对照。
+
 ## 金标的证据强度（不要混用）
 
 | `reference.kind` | 强度 | 用途 |
