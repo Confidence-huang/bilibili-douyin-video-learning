@@ -19,7 +19,7 @@ import urllib.error
 from urllib.parse import parse_qs, urlparse
 
 from speech_to_text import transcribe_audio_file                                  # 统一使用 faster-whisper 优先的本机 ASR 入口
-from runtime_output import log                                                   # 下载/ASR 进度写 stderr，最终 JSON 留在 stdout。
+from runtime_output import EXIT_SHARE_PAGE_UNAVAILABLE, EXIT_TRANSCRIPTION_FAILED, log                                                   # 下载/ASR 进度写 stderr，最终 JSON 留在 stdout。
 from media_tools import find_ffmpeg                                              # 所有平台共用同一 FFmpeg 解析规则。
 
 
@@ -322,6 +322,7 @@ def bilibili_transcribe(bvid, output_dir=None, model_size="small", cookies=None,
     result["diagnostics"]["audio"] = audio_details.get("audio", result["diagnostics"]["audio"])
     if error:
         result["error"] = f"Audio download failed: {error}"
+        result["exit_code"] = EXIT_SHARE_PAGE_UNAVAILABLE                         # 取流失败：可重试或换来源
         log(f"[pipeline] ERROR: {result['error']}")
         return result
 
@@ -359,6 +360,7 @@ def bilibili_transcribe(bvid, output_dir=None, model_size="small", cookies=None,
 
     except Exception as e:
         result["error"] = f"ASR failed: {str(e)}"
+        result["exit_code"] = EXIT_TRANSCRIPTION_FAILED                          # 取流成功、本机 ASR 失败
         result["diagnostics"]["audio"] = {"ok": False, "reason": result["error"]}
         log(f"[pipeline] ERROR: {result['error']}")
         import traceback

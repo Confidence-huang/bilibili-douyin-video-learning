@@ -502,6 +502,10 @@ SSR 与 yt-dlp **两条路径都失败**——抛的是普通 `RuntimeError`，�
 "稍后重试"和"换个下载方式"。现已新增 `DouyinDownloadUnavailableError` 承载同一份 JSON 诊断体并纳入分类元组；
 坏输入的真实命令现在返回 `20`（此前为 `1`），JSON 里的 `exit_code` 与之一致。
 
+**B站侧同样补上（真实测试发现）**：`transcribe_bilibili.py` 与 `download_audio.py` 此前在失败时**仍然返回 0**，
+调用方只能靠解析 JSON 判断成败。现在两者都在结果里写 `exit_code`（取流失败 20、本机 ASR 失败 24）
+并由 CLI 返回之；用不存在的 BV 实测得到进程退出码 `20`，`status: error`、`exit_code: 20` 与 JSON 一致。
+
 **验证方式**：`tests/test_exit_codes.py` 断言各码互不重复、四类故障各自映射正确、
 抖音 `main()` 在取流失败与转写失败时分别返回 `20` 与 `24` 且 JSON `exit_code` 与之一致、
 转写步骤把底层异常包装成 `TranscriptionFailedError`、B站未分类异常仍返回 `2`、
