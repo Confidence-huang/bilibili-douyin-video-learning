@@ -81,6 +81,32 @@ def apply_profile(settings: "TranscriptionSettings", profile: str) -> "Transcrip
     return settings._replace(profile=profile, **overrides)
 
 
+MODEL_AUTO = "auto"                     # 默认值：按设备自动挑，见 D43
+CUDA_DEFAULT_MODEL = "large"            # 实测：抖音 CER 0.0187 vs small 0.0433；B站 0.0085 vs 0.1111
+CPU_DEFAULT_MODEL = "small"             # CPU 上 large 慢到不可用，质量收益换不来
+MODEL_ALIASES = {"large-v3": "large", "large_v3": "large", "largev3": "large"}
+
+
+@functools.lru_cache(maxsize=1)
+def detect_cuda_available() -> bool:
+    """是否有可用的 CUDA 设备（用 ctranslate2 自己的探测，不猜）。"""
+    try:
+        import ctranslate2
+
+        return ctranslate2.get_cuda_device_count() > 0
+    except Exception:
+        return False
+
+
+def resolve_model_size(requested: str, *, cuda_available: bool | None = None) -> tuple[str, str]:
+    """把 `auto`（默认）解析成具体模型，并给出依据说明，便于日志与审计（D43）。"""
+    name = MODEL_ALIASES.get(str(requested or "").strip().lower(), str(requested or "").strip().lower())
+    if name and name != MODEL_AUTO:
+        return name, f"explicit:{name}"
+    available = detect_cuda_available() if cuda_available is None else cuda_available
+    return (CUDA_DEFAULT_MODEL, "auto:cuda") if available else (CPU_DEFAULT_MODEL, "auto:cpu")
+
+
 # --- 模型权重指纹（大小 + mtime）：同一个模型名换 revision 后必须失效缓存（D36）---
 @functools.lru_cache(maxsize=8)
 def model_fingerprint(model_size: str) -> str | None:

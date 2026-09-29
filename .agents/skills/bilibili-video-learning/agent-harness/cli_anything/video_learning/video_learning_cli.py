@@ -224,6 +224,16 @@ def doctor_status_command() -> None:
         raise click.exceptions.Exit(1)                                            # doctor 不把缺失依赖当成成功。
 
 
+@doctor_group.command("assets")
+@handle_error
+def doctor_assets_command() -> None:
+    """只报告 Skill 资产盘点（词表/裁决表/分块/模板），便于脚本化取值。"""
+    payload = inspect_runtime()
+    from cli_anything.video_learning.core import skill_assets
+    assets = skill_assets.inspect_skill_assets(payload["skill_root"])
+    emit_result(assets, "\n".join(f"{key}: {value}" for key, value in assets.items()))
+
+
 # --- 默认交互式入口 ---
 @cli.command("repl", hidden=True)
 def repl() -> None:

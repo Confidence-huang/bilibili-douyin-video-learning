@@ -1325,6 +1325,37 @@ D38 的分块能力此前只有代码路径能启用；现在命令行可用（�
 
 ---
 
+## D43. 抖音与 B站 同一个结论：模型默认随设备自适应（`auto` = 有 CUDA 用 large）
+
+**问题**：B站 金标显示 `large` 的 CER 0.0085 比 `small` 的 0.1111 好 **13 倍**；抖音金标同样同向——
+`small` 最好 0.0433，`large-v3` **0.0187**（2.3 倍）。那抖音要不要也改默认？**要**，但不能简单把默认改成 `large`。
+
+**决策**：三个入口（`douyin_extract.py`、`transcribe_bilibili.py`、`transcribe_audio_cli.py`）的
+`--model` 默认从 `small` 改为 **`auto`**，由 `speech_to_text.resolve_model_size()` 解析：
+
+| 输入 | 设备 | 结果 |
+|---|---|---|
+| `auto`（默认） | 有 CUDA | `large`（依据 `auto:cuda`） |
+| `auto`（默认） | 无 CUDA | `small`（依据 `auto:cpu`） |
+| 显式 `small`/`large`/… | 任意 | 原样尊重（依据 `explicit:<name>`） |
+| `large-v3` | 任意 | 归一为 `large`（`faster-whisper` 的 `large` 即最新 large） |
+
+**为什么不直接把默认改成 `large`**：CPU 上 `large` 慢到不可用（46 分钟素材会从分钟级变成小时级），
+而质量收益对"等不起"的用户等于零。**设备自适应让有 GPU 的人自动拿到实测支持的质量，
+同时不牺牲 CPU 用户的可用性**；解析依据写进日志（`model=large (auto:cuda)`），可审计、不神秘。
+
+**顺带**：`doctor assets` 子命令（只输出资产盘点，便于脚本化取值），
+以及三处 `--model` 的 choices 补上 `auto` 与 `large-v3`（否则默认值会被参数校验拒绝）。
+
+**我犯的错**：把 `resolve_model_size(...)` 的调用插进了 `TranscriptionConfig(...)` 的**参数列表内部** →
+`transcribe_bilibili.py` 语法错误、8 个测试立刻失败。修法是把解析移到调用之前。
+教训与 D40 一致：**改动必须跑测试**，而"看起来只是加一行"最容易出这类错。
+
+**重新评估触发条件**：若 CPU 上出现可行的加速方案（如更小的高质量模型），重测自适应阈值；
+若 `large` 的显存需求超过常见笔记本显存，应改为按显存选择。
+
+---
+
 ## 决策索引
 
 | 编号 | 主题 | 是否可推翻 |
@@ -1371,3 +1402,4 @@ D38 的分块能力此前只有代码路径能启用；现在命令行可用（�
 | D40 | B站 素材实测：分块标定 / 前端行为 / 实验抓出的缺陷 | 可（换更大的显存重测） |
 | D41 | B站 金标 = agent-verified（不冒充人工） | 可（人耳确认后转 human-verified） |
 | D42 | 标点用规则法并量化天花板；分块参数进 CLI | 可（标点成验收项则加可选依赖） |
+| D43 | 模型默认 auto（有 CUDA 用 large）；doctor assets | 可（出现 CPU 加速方案时重测） |

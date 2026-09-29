@@ -836,7 +836,8 @@ def parse_cli_arguments(argv: list) -> argparse.Namespace:
     )
     parser.add_argument("url", nargs="?", help="Douyin URL, aweme_id, or app share text")
     parser.add_argument("--json", "-j", action="store_true", help="Output raw JSON")
-    parser.add_argument("--model", default="small", choices=("tiny", "base", "small", "medium", "large"), help="ASR model size")
+    parser.add_argument("--model", default="auto", choices=("auto", "tiny", "base", "small", "medium", "large", "large-v3"),
+                        help="ASR 模型；auto（默认）= 有 CUDA 用 large，否则 small（D43）")
     parser.add_argument("--keep-temp", action="store_true", help="Keep downloaded video and audio files")
     parser.add_argument("--no-cache", action="store_true", help="Ignore and do not write the reusable transcription cache")
     parser.add_argument("--include-transcript", action="store_true", help="Include full ASR text only for authorized local use")
@@ -880,6 +881,8 @@ def main(argv: list = None) -> int:
         parse_cli_arguments(["--help"])
         return EXIT_GENERIC_FAILURE                                               # 缺参数属于用法错误，不是平台故障
 
+    args.model, model_reason = speech_to_text.resolve_model_size(args.model)         # auto 按设备解析（D43）
+    log(f"[douyin] model={args.model} ({model_reason})")
     language = "en" if args.english else "zh"
     settings = TranscriptionSettings(                                             # 转写参数在这里定型，缓存身份与转写共用同一份
         model_size=args.model,

@@ -2,6 +2,25 @@
 
 All notable public changes are recorded here.
 
+## 1.19.0 - 2026-09-29
+
+- **Both platforms now pick the model from the device.** The Bilibili gold showed `large` at CER
+  0.0085 against `small` at 0.1111, a 13x gap, and the Douyin gold points the same way (0.0433 for
+  small at its best, 0.0187 for large-v3, a 2.3x gap) - so Douyin needed the change too. `--model`
+  now defaults to `auto` in all three entry points: `large` when CUDA is available, `small`
+  otherwise, and the reason is logged (`model=large (auto:cuda)`) so the choice is auditable.
+  Making `large` the unconditional default was rejected because on CPU a 46-minute file goes from
+  minutes to hours, which is a real cost for zero benefit to the people waiting on it. Explicit
+  `--model` values are still honoured, and `large-v3` is normalised to `large`. See D43.
+- **`doctor assets` is its own subcommand**, so the lexicon count, conflict-preference count,
+  chunking availability and default, and the template list can be read without pulling in the rest
+  of the doctor payload.
+- **A mistake worth recording**: the `resolve_model_size(...)` call was inserted inside the
+  argument list of the settings constructor, which broke `transcribe_bilibili.py` outright and
+  failed eight tests immediately. "It is only one line" is exactly the change that needs the suite
+  run, and the suite is what caught it.
+- Tests: **343 passing** offline cases.
+
 ## 1.18.0 - 2026-09-29
 
 - **Punctuation is now measured, and its ceiling is documented.** `eval_asr` gained a punctuation

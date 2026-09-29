@@ -283,3 +283,40 @@ def test_punctuation_scores_window_and_no_reference_marks():
     assert hit["f1"] == 1.0
     assert shifted["recall"] == 0.5                  # 逗号漏了，句号命中
     assert absent["f1"] is None and "不适用" in absent["note"]
+
+
+# ============================ 模型档位按设备自适应（D43） ============================
+
+def load_speech():
+    import importlib.util
+    from pathlib import Path as _Path
+    scripts = _Path(__file__).resolve().parents[4] / "scripts"
+    spec = importlib.util.spec_from_file_location("video_learning_test_speech_models", scripts / "speech_to_text.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+# --- auto：有 CUDA 用 large，没有就用 small（CPU 上 large 慢到不可用）---
+def test_auto_model_follows_device():
+    speech = load_speech()
+
+    assert speech.resolve_model_size("auto", cuda_available=True) == ("large", "auto:cuda")
+    assert speech.resolve_model_size("auto", cuda_available=False) == ("small", "auto:cpu")
+
+
+# --- 显式指定必须原样尊重，且 large-v3 归一为 large ---
+def test_explicit_model_wins_and_alias_is_mapped():
+    speech = load_speech()
+
+    assert speech.resolve_model_size("small", cuda_available=True)[0] == "small"
+    assert speech.resolve_model_size("large-v3", cuda_available=False)[0] == "large"
+    assert speech.resolve_model_size("LARGE-V3", cuda_available=False)[1] == "explicit:large"
+
+
+# --- 空值/None 也按 auto 处理，不能让 None 传进引擎 ---
+def test_blank_model_falls_back_to_auto():
+    speech = load_speech()
+
+    assert speech.resolve_model_size("", cuda_available=True)[0] == "large"
+    assert speech.resolve_model_size(None, cuda_available=False)[0] == "small"
