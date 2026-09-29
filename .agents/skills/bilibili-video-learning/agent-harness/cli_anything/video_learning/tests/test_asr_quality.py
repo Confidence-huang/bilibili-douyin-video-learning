@@ -418,3 +418,17 @@ def test_shipped_baseline_is_usable():
     cases = {item["case"]: item for item in baseline["cases"]}
     assert {"bili1-large", "bili1-small", "bili2-large", "bili2-small"} <= set(cases)
     assert all(0 < item["tolerance"] <= 0.05 for item in baseline["cases"])
+
+
+# --- 基线按归一模式分别记录：同一用例在不同环境各比各的（D47）---
+def test_baseline_matches_by_normalization_mode():
+    benchmark = load_script_module("run_benchmark")
+    baseline = {"cases": [{"case": "a", "tolerance": 0.01,
+                           "cer_by_mode": {"t2s:on+n": 0.11, "t2s:off+n": 0.13}}]}
+
+    on = benchmark.compare_baseline([{"case": "a", "cer": 0.115, "norm": "t2s:on+n"}], baseline)
+    off = benchmark.compare_baseline([{"case": "a", "cer": 0.135, "norm": "t2s:off+n"}], baseline)
+    unknown = benchmark.compare_baseline([{"case": "a", "cer": 0.12, "norm": "t2s:fallback+n"}], baseline)
+
+    assert on == [] and off == []                       # 两种模式都各自在容差内
+    assert unknown and "没有模式" in unknown[0]          # 没记录过的模式必须先记录
