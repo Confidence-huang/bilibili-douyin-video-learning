@@ -57,6 +57,21 @@ def _first(mapping: Dict[str, Any], *keys: str):
     return None
 
 
+def _timeline_median(timeline: Any):
+    """时间轴中位：报告里可能存标量，也可能只存偏移列表（打印时才算中位），两种都要兜住。"""
+    scalar = _first(timeline or {}, "median_offset_seconds", "median_offset")
+    if scalar is not None:
+        return scalar
+    found = _search_number(timeline, ("median",))
+    if found is not None:
+        return found
+    for value in (timeline or {}).values():
+        if isinstance(value, list) and value and all(isinstance(item, (int, float)) for item in value):
+            ordered = sorted(value)
+            return round(ordered[len(ordered) // 2], 3)
+    return None
+
+
 def _search_number(mapping: Any, hints, depth: int = 0):
     """按语义提示词在（最多三层的）嵌套里找数字：字段名改过几次，猜死一个键名迟早失配。"""
     if not isinstance(mapping, dict) or depth > 2:
@@ -97,9 +112,7 @@ def evaluate_case(case: Dict[str, Any]) -> Dict[str, Any]:
         "hallucination": _first(report.get("hallucination") or {}, "characters_per_minute", "rate", "per_minute")
                           if _first(report.get("hallucination") or {}, "characters_per_minute", "rate", "per_minute")
                           is not None else _search_number(report.get("hallucination"), ("minute", "rate")),
-        "timeline_median": _first(timeline, "median_offset_seconds", "median_offset")
-                           if _first(timeline, "median_offset_seconds", "median_offset") is not None
-                           else _search_number(timeline, ("median",)),
+        "timeline_median": _timeline_median(timeline),
         "punct_f1": (report.get("punctuation") or {}).get("f1"),
     }
 
