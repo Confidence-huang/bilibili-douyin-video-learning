@@ -46,7 +46,7 @@ jobs:
         run: |
           skill_root="$PWD/.agents/skills/bilibili-video-learning"
           uv venv .ci-venv --python 3.12
-          uv pip install --python .ci-venv/bin/python pytest click prompt-toolkit requests setuptools pyyaml imageio-ffmpeg opencc-python-reimplemented>=0.1.7  # 让需要真实媒体的用例（无音轨检测/音频抽取）在 CI 里也真的跑起来
+          uv pip install --python .ci-venv/bin/python pytest click prompt-toolkit requests setuptools pyyaml imageio-ffmpeg "opencc-python-reimplemented>=0.1.7"  # 让需要真实媒体的用例（无音轨检测/音频抽取）在 CI 里也真的跑起来
           uv pip install --python .ci-venv/bin/python --no-deps -e "$skill_root/agent-harness"
 
       - name: Run offline tests without ASR model downloads
@@ -121,7 +121,7 @@ jobs:
         run: |
           $skillRoot = Join-Path $PWD ".agents\skills\bilibili-video-learning"
           uv venv .ci-venv --python 3.12
-          uv pip install --python .\.ci-venv\Scripts\python.exe pytest click prompt-toolkit requests setuptools pyyaml imageio-ffmpeg  # 同上：CI 也要能生成真实媒体 opencc-python-reimplemented>=0.1.7  # 与本地同归一模式，CER 才可比
+          uv pip install --python .\.ci-venv\Scripts\python.exe pytest click prompt-toolkit requests setuptools pyyaml imageio-ffmpeg  # 同上：CI 也要能生成真实媒体 "opencc-python-reimplemented>=0.1.7"  # 与本地同归一模式，CER 才可比
           uv pip install --python .\.ci-venv\Scripts\python.exe --no-deps -e "$skillRoot\agent-harness"
 
       - name: Run offline tests without the multi-GB GPU runtime
