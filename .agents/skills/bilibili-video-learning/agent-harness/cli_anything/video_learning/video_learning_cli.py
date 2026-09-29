@@ -32,11 +32,12 @@ from cli_anything.video_learning.core.doctor import inspect_runtime  # 真实环
 from cli_anything.video_learning.core.note import render_note  # 本地 extraction JSON -> Markdown。
 from cli_anything.video_learning.core.source import inspect_source, normalize_source  # 平台来源指令。
 from cli_anything.video_learning.core.subtitle import convert_subtitle  # 本地字幕 -> 时间线。
+from cli_anything.video_learning.utils.exit_codes import EXIT_COOKIE_PERMISSION_REQUIRED  # 退出码契约的唯一定义处。
 from cli_anything.video_learning.utils.repl_skin import ReplSkin  # 复用 CLI-Anything 官方交互外观。
 from cli_anything.video_learning.utils.security import sanitize_text  # CLI 未处理异常统一脱敏后再反馈。
 
 
-COOKIE_PERMISSION_EXIT_CODE = 21  # Agent 可区分“需要授权”与普通后端故障。
+COOKIE_PERMISSION_EXIT_CODE = EXIT_COOKIE_PERMISSION_REQUIRED  # Agent 可区分“需要授权”与普通后端故障。
 
 
 # --- 把业务结果按人类或 Agent 模式反馈 ---

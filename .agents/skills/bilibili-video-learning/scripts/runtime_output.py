@@ -15,6 +15,16 @@ if str(HARNESS_ROOT) not in sys.path:
     sys.path.insert(0, str(HARNESS_ROOT))                            # `.venv-gpu` 无需重复安装 harness 包。
 
 from cli_anything.video_learning.utils.security import sanitize_diagnostics, sanitize_text  # noqa: E402 统一错误安全出口。
+from cli_anything.video_learning.utils.exit_codes import (  # noqa: E402 退出码契约对所有后端脚本统一可见。
+    EXIT_GENERIC_FAILURE,
+    EXIT_NETWORK_TIMEOUT,
+    EXIT_RATIO_UNAVAILABLE,
+    EXIT_SHARE_PAGE_UNAVAILABLE,
+    EXIT_SUCCESS,
+    EXIT_TRANSCRIPTION_FAILED,
+    TranscriptionFailedError,
+    classify_failure,
+)
 
 
 # --- 输出一条不会污染 JSON stdout 的诊断 ---
