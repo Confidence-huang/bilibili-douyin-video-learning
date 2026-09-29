@@ -36,6 +36,7 @@ class TranscriptionSettings(NamedTuple):
     gap_min_seconds: float = asr_coverage.DEFAULT_GAP_MIN_SECONDS                  # 小于该值的空档视为正常停顿
     speech_dbfs: float = asr_coverage.DEFAULT_SPEECH_DBFS                          # 高于该音量的空档判定为“有人在说话”
     max_retry_windows: int = asr_coverage.DEFAULT_MAX_RETRY_WINDOWS                # 单次运行的补转窗口预算
+    low_confidence_logprob: float = -1.0                                          # 与 whisper 默认 logprob 阈值一致
 
     def identity(self) -> dict:
         return {"params_version": ASR_PARAMS_VERSION, **self._asdict()}           # 缓存键只认这份字典，不认调用点默认值
@@ -110,8 +111,33 @@ def _reading_to_segments(reading) -> list[dict]:
                 "from": round(segment.start, 2),                                   # 片段开始秒数，用于回看定位
                 "to": round(segment.end, 2),                                       # 片段结束秒数，用于计算覆盖
                 "content": content,                                                # ASR 正文
+                "confidence": _segment_confidence(segment),                        # 平均对数概率，供下游标注不可信区间
+                "no_speech_probability": getattr(segment, "no_speech_prob", None),  # 被判定为静音的概率
+                "compression_ratio": getattr(segment, "compression_ratio", None),   # 异常高通常意味着复读或幻觉
             })
     return segments
+
+
+# --- 取一段的平均对数概率（不同引擎字段可能缺失） ---
+def _segment_confidence(segment) -> float | None:
+    value = getattr(segment, "avg_logprob", None)
+    return round(float(value), 3) if value is not None else None
+
+
+# --- 汇总低置信区间：让调用方知道哪些位置需要人工复核 ---
+def _low_confidence_spans(segments: list[dict], threshold: float) -> list[dict]:
+    spans = []
+    for segment in segments:
+        confidence = segment.get("confidence")
+        if confidence is not None and confidence < threshold:                      # 只标记真的低于阈值的位置
+            spans.append({
+                "start": segment["from"],
+                "end": segment["to"],
+                "confidence": confidence,
+                "no_speech_probability": segment.get("no_speech_probability"),
+                "text": segment["content"][:40],                                   # 只带一小段原文，便于定位
+            })
+    return spans
 
 
 # --- 用 faster-whisper 转写 ---
@@ -247,7 +273,7 @@ def _run_openai_whisper(
 
 
 # --- 把结果补上覆盖率字段与覆盖后的全文 ---
-def _finalize(result: dict, guard: dict) -> dict:
+def _finalize(result: dict, guard: dict, *, low_confidence_threshold: float) -> dict:
     segments = guard["segments"]                                                   # 覆盖率校验后的最终分段
     report = guard["report"]                                                       # 判断依据原样交给调用方
     result["segments"] = segments                                                  # 覆盖掉第一遍可能缺字的分段
@@ -257,6 +283,16 @@ def _finalize(result: dict, guard: dict) -> dict:
     result["coverage_before"] = report.get("coverage_before")                      # 新增：补转前的覆盖率
     result["coverage_after"] = report.get("coverage_after")                        # 新增：补转后的覆盖率
     result["diagnostics"].append(_new_coverage_diagnostic(report))                  # 覆盖率结论写进统一诊断
+    low_confidence = _low_confidence_spans(segments, low_confidence_threshold)      # 低置信区间交给人工复核
+    result["low_confidence_spans"] = low_confidence
+    if low_confidence:
+        result["diagnostics"].append({
+            "step": "asr_confidence",
+            "ok": False,                                                           # 有可疑区间就要让调用方看见
+            "message": f"{len(low_confidence)} segment(s) below logprob {low_confidence_threshold}",
+            "threshold": low_confidence_threshold,
+            "spans": low_confidence,
+        })
     return result
 
 
@@ -306,7 +342,10 @@ def transcribe_audio_file(
             raise faster_error from fallback_error                                 # 保留根因：真正失败的是主路线，兜底只是没救回来
 
     if not active.coverage_check:                                                  # 调用方显式关闭校验时保持历史行为
-        return _finalize(result, {"segments": result["segments"], "report": {"checked": False, "skipped_reason": "coverage check disabled"}})
+        return _finalize(result,
+                         {"segments": result["segments"],
+                          "report": {"checked": False, "skipped_reason": "coverage check disabled"}},
+                         low_confidence_threshold=active.low_confidence_logprob)
 
     guard = asr_coverage.apply_coverage_guard(
         audio,
@@ -317,4 +356,4 @@ def transcribe_audio_file(
         speech_dbfs=active.speech_dbfs,
         max_windows=active.max_retry_windows,
     )
-    return _finalize(result, guard)
+    return _finalize(result, guard, low_confidence_threshold=active.low_confidence_logprob)

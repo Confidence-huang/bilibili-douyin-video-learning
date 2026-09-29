@@ -50,6 +50,7 @@ def test_failure_categories_have_distinct_exit_codes():
         exit_codes.EXIT_NETWORK_TIMEOUT,
         exit_codes.EXIT_RATIO_UNAVAILABLE,
         exit_codes.EXIT_TRANSCRIPTION_FAILED,
+        exit_codes.EXIT_SOURCES_DISAGREE,
     ]
 
     assert len(set(codes)) == len(codes)  # 任何一个码都不能与其他码撞车。

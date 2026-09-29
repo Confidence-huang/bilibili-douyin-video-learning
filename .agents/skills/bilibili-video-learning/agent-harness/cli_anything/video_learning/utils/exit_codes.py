@@ -14,6 +14,7 @@ EXIT_COOKIE_PERMISSION_REQUIRED = 21  # 需要用户显式授权 Cookie 后才�
 EXIT_NETWORK_TIMEOUT = 22            # 网络超时或连接中断：换网络、加重试或使用代理。
 EXIT_RATIO_UNAVAILABLE = 23          # 请求的画质在所有公开档位里都不可用：降档重试。
 EXIT_TRANSCRIPTION_FAILED = 24       # 取流成功但本地 ASR 失败：检查运行时/模型/显存。
+EXIT_SOURCES_DISAGREE = 25           # 交叉校验发现两份来源不一致：需要人工判断以哪一份为准。
 
 RATIO_FAILURE_MARKERS = ("unsupported ratio", "no public play ratio worked")  # 画质失败目前只有文本可判。
 

@@ -43,9 +43,23 @@ from runtime_output import (                                                    
 from file_output import write_json_atomically, write_text_atomically             # 缓存和最终 Markdown 只原子发布完整文件。
 from media_tools import find_ffmpeg                                              # 所有平台共用同一 FFmpeg 解析规则。
 from prompt_templates import load_template                                       # 笔记骨架来自可评审的 prompts/*.md。
+from clean_transcript import FIDELITY_MODES, clean_segments                      # 清洗是管道的一环，不再是孤儿脚本
+from normalize_transcript import (                                               # 唯一的分段形状与文本归一化
+    SIMPLIFY_MODES,
+    join_with_pause_punctuation,
+    simplify_segments,
+    to_plain_text,
+    to_srt,
+)
 
 
-CACHE_SCHEMA_VERSION = 3                                                         # v3 把转写参数与引擎版本一起纳入身份。
+CACHE_SCHEMA_VERSION = 4                                                         # v4 再纳入保真度与归一模式，避免串用缓存。
+EMIT_FORMATS = ("md", "json", "srt", "txt")                                      # --emit 允许的产出格式
+
+
+# --- 两条公开取流路径都失败 ---
+class DouyinDownloadUnavailableError(RuntimeError):
+    """取流不可用（携带 JSON 诊断体）：Agent 据此重试或换下载方式，而不是当成普通失败。"""
 
 
 # --- Helpers ---
@@ -124,10 +138,13 @@ def build_cache_identity(
 
 
 # --- 汇总一次转写真正会影响结果的全部参数 ---
-def build_asr_identity(settings: TranscriptionSettings) -> dict:
+def build_asr_identity(settings: TranscriptionSettings, fidelity: str = "verbatim",
+                       simplify: str = "auto") -> dict:
     return {
-        **settings.identity(),                                  # 参数版本 + 模型 + VAD + 覆盖率开关
+        **settings.identity(),                                  # 参数版本 + 模型 + VAD + 覆盖率与置信度阈值
         "engines": installed_engine_versions(),                  # 引擎补丁升级同样要放弃旧缓存。
+        "fidelity": fidelity,                                    # 清洗模式会改变落盘正文，必须一起进身份。
+        "simplify": simplify,                                    # 繁简归一同样改变字形，也要进身份。
     }
 
 
@@ -388,7 +405,7 @@ def choose_downloaded_video(
             diagnostics.extend(getattr(exc, "diagnostics", []))
             add_diagnostic(diagnostics, "ssr_pipeline", False, f"SSR public download failed: {exc}")
             if download_method == "ssr":
-                raise RuntimeError(json.dumps({
+                raise DouyinDownloadUnavailableError(json.dumps({
                     "error": f"SSR public download failed before transcription: {exc}",
                     "download_method": download_method,
                     "diagnostics": diagnostics,
@@ -407,7 +424,7 @@ def choose_downloaded_video(
             return ytdlp_result
         except Exception as exc:
             add_diagnostic(diagnostics, "ytdlp_pipeline", False, f"yt-dlp fallback failed: {exc}")
-            raise RuntimeError(json.dumps({
+            raise DouyinDownloadUnavailableError(json.dumps({
                 "error": "Douyin download failed before transcription",
                 "download_method": download_method,
                 "diagnostics": diagnostics,
@@ -458,9 +475,9 @@ def transcribe(
         )
     except Exception as exc:                                                      # 取流已成功，这里只可能是本地 ASR 问题
         raise TranscriptionFailedError(str(exc)) from exc                          # 让调用方用不同退出码区分“换台机器再试”
-    segments = [                                                                  # 保持旧 Douyin Markdown 需要的字段名
-        {"start": round(seg["from"], 1), "text": seg["content"]}                  # 旧格式只有开始时间和文本
-        for seg in asr_result["segments"]                                         # 共享模块输出标准 from/to/content
+    segments = [                                                                  # 规范形状：start/end/text
+        {"start": round(seg["from"], 1), "end": round(seg["to"], 1), "text": seg["content"]}
+        for seg in asr_result["segments"]                                         # 共享模块输出 from/to/content，这里一次性转换
     ]
     full_text = asr_result["text"].strip()                                        # 此处已是补转后的全文，不再是缺字版本
     log(
@@ -486,9 +503,11 @@ def extract_douyin(
     socket_timeout: int = 60,
     use_cache: bool = True,
     settings: TranscriptionSettings | None = None,
+    fidelity: str = "verbatim",
+    simplify: str = "auto",
 ) -> dict:
     """
-    Main pipeline: choose download method → extract audio → transcribe.
+    Main pipeline: choose download method → extract audio → transcribe → clean.
 
     Returns dict with: metadata, segments, full_text, segment_count, etc.
     """
@@ -498,7 +517,7 @@ def extract_douyin(
     active = settings or TranscriptionSettings(model_size=model_size, language=language)  # 转写参数统一由 settings 决定
 
     # Step 1: Use a stable non-identifying folder before the real video ID is known.
-    asr_identity = build_asr_identity(active)                                     # 转写参数与引擎版本一起进入缓存身份
+    asr_identity = build_asr_identity(active, fidelity, simplify)               # 转写参数、引擎版本、清洗与归一模式一起进入身份
     cache_identity = build_cache_identity(url, active.model_size, active.language, download_method, ratio, watermark,
                                           asr_identity)
     cache_key = build_cache_key(url, active.model_size, active.language, download_method, ratio, watermark, asr_identity)
@@ -544,7 +563,15 @@ def extract_douyin(
         log(f"[douyin] Using cached audio: {wav_path}")
 
     # Step 3: Transcribe the downloaded or cached audio.
-    segments, full_text, asr_result = transcribe(wav_path, active.model_size, active.language, settings=active)
+    raw_segments, _, asr_result = transcribe(wav_path, active.model_size, active.language, settings=active)
+    segments, cleaning_report = clean_segments(raw_segments, fidelity=fidelity)  # 清洗是管道的一步，不是可选的外部脚本
+    segments, simplification_report = simplify_segments(segments, mode=simplify)  # 繁简归一：缺 OpenCC 时只记录不失败
+    full_text = to_plain_text(segments)                                         # 逐字全文必须与落盘分段一致
+    readable_text = join_with_pause_punctuation(segments)                       # 可读全文按停顿补句读，仅供阅读与检索
+    log(f"[douyin] Cleaned with fidelity={fidelity}: {cleaning_report['input_segments']} -> "
+        f"{cleaning_report['output_segments']} segments, dropped {cleaning_report['dropped_fillers']}")
+    if simplification_report["applied"]:
+        log(f"[douyin] Simplified {simplification_report['changed_segments']} segments to Simplified Chinese")
 
     # Step 4: Remove heavy media files unless the caller asked to inspect them.
     if not keep_temp:
@@ -572,6 +599,10 @@ def extract_douyin(
         "audio_duration": asr_result.get("audio_duration"),       # 音频真实时长，用于复核覆盖率分母
         "coverage_before": asr_result.get("coverage_before"),     # 补转前的覆盖率
         "coverage_after": asr_result.get("coverage_after"),       # 补转后的覆盖率
+        "fidelity": fidelity,
+        "cleaning": cleaning_report,                              # 清洗做了什么，调用方一眼可见
+        "simplification": simplification_report,                  # 繁简归一是否生效、为什么没生效
+        "readable_text": readable_text,                           # 按停顿补句读的可读全文（full_text 仍是逐字拼接）
         "segments": segments,
         "segment_count": len(segments),
         "full_text": full_text,
@@ -671,6 +702,38 @@ def to_markdown(result: dict, *, include_transcript: bool = False) -> str:
     return "\n".join(lines)
 
 
+# --- 解析 --emit 请求的产出格式 ---
+def parse_emit_formats(emit: str | None) -> list[str]:
+    if not emit:
+        return []
+    requested = [item.strip().lower() for item in emit.split(",") if item.strip()]
+    unknown = [item for item in requested if item not in EMIT_FORMATS]
+    if unknown:
+        raise ValueError(f"unsupported --emit value(s) {unknown}; choose from {sorted(EMIT_FORMATS)}")
+    return requested
+
+
+# --- 把结果写成请求的多种格式 ---
+def write_emitted_artifacts(result: dict, output_dir: str, formats: list[str], *, include_transcript: bool) -> list[str]:
+    title = result.get("metadata", {}).get("title") or "douyin_video"
+    safe_name = re.sub(r'[\\/:*?"<>|]', "_", title) or "douyin_video"
+    os.makedirs(output_dir, exist_ok=True)
+    written = []
+    for fmt in formats:
+        if fmt == "md":
+            payload = to_markdown(result, include_transcript=include_transcript)
+        elif fmt == "json":
+            payload = json.dumps(result, ensure_ascii=False, indent=2)
+        elif fmt == "srt":
+            payload = to_srt(result.get("segments", []))                      # 字幕本身就是完整转录，受同一授权边界约束
+        else:
+            payload = result.get("readable_text") or to_plain_text(result.get("segments", []))  # 可读全文优先
+        filepath = os.path.join(output_dir, f"{safe_name}.{fmt}")
+        write_text_atomically(filepath, payload if payload.endswith("\n") else payload + "\n")
+        written.append(filepath)
+    return written
+
+
 # --- CLI argument parser ---
 def parse_cli_arguments(argv: list) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
@@ -695,6 +758,11 @@ def parse_cli_arguments(argv: list) -> argparse.Namespace:
     parser.add_argument("--no-vad", action="store_true", help="Disable VAD silence filtering; keeps speech that VAD would silently drop")
     parser.add_argument("--no-coverage-retry", action="store_true", help="Skip the automatic re-transcription of suspicious timeline gaps")
     parser.add_argument("--vad-min-silence-ms", type=int, default=2000, help="VAD: silence shorter than this is not cut (faster-whisper default 2000)")
+    parser.add_argument("--fidelity", default="verbatim", choices=FIDELITY_MODES,
+                        help="verbatim keeps every word; cleaned also drops filler-only segments")
+    parser.add_argument("--emit", help="Comma-separated artifacts to write next to the Markdown: md,json,srt,txt (srt/txt need --include-transcript)")
+    parser.add_argument("--simplify", default="auto", choices=SIMPLIFY_MODES,
+                        help="auto: convert Traditional to Simplified when OpenCC is installed; on: require it; off: keep as-is")
     return parser.parse_args(argv)
 
 
@@ -735,6 +803,8 @@ def main(argv: list = None) -> int:
             socket_timeout=args.socket_timeout,
             use_cache=not args.no_cache,
             settings=settings,                                                    # VAD 与覆盖率兜底开关随参数进入转写
+            fidelity=args.fidelity,                                               # 清洗模式同时决定落盘正文与缓存身份
+            simplify=args.simplify,                                               # 繁简归一同样进入缓存身份
         )
     except Exception as exc:
         error_result = {
@@ -757,7 +827,10 @@ def main(argv: list = None) -> int:
             })
 
         error_result = sanitize_diagnostics(error_result)                        # 解析出的嵌套诊断也必须脱敏。
-        exit_code = classify_failure(exc, (douyin_ssr.DouyinSSRDownloadError,))   # 取流/网络/转写分别给不同退出码
+        exit_code = classify_failure(                                            # 取流/网络/转写分别给不同退出码
+            exc,
+            (douyin_ssr.DouyinSSRDownloadError, DouyinDownloadUnavailableError),
+        )
         error_result["exit_code"] = exit_code                                    # 结构化失败里带上同一份判断，便于 Agent 决策
         if args.json:
             print(json.dumps(error_result, ensure_ascii=False, indent=2))
@@ -774,12 +847,20 @@ def main(argv: list = None) -> int:
     if args.json:
         print(json.dumps(result, ensure_ascii=False, indent=2))
     elif args.output:
-        md = to_markdown(result, include_transcript=args.include_transcript)
-        title = result["metadata"].get("title", "douyin_video")
-        safe_name = re.sub(r'[\\/:*?"<>|]', '_', title) or "douyin_video"
-        filepath = os.path.join(args.output, f"{safe_name}.md")
-        write_text_atomically(filepath, md)                       # 中断时保留已有完整笔记。
-        print(f"Saved to: {filepath}")
+        try:
+            emit_formats = parse_emit_formats(args.emit) or ["md"]                   # 未指定 --emit 时保持历史上的单 Markdown 行为
+        except ValueError as exc:
+            print(f"[douyin] ERROR: {sanitize_text(str(exc))}", file=sys.stderr)
+            return EXIT_GENERIC_FAILURE
+        transcript_formats = {"srt", "txt"} & set(emit_formats)
+        if transcript_formats and not args.include_transcript:                       # 完整转录的授权边界必须显式跨过
+            print(f"[douyin] ERROR: --emit {','.join(sorted(transcript_formats))} writes the full transcript; "
+                  f"add --include-transcript", file=sys.stderr)
+            return EXIT_GENERIC_FAILURE
+        written = write_emitted_artifacts(result, args.output, emit_formats,
+                                          include_transcript=args.include_transcript)
+        for filepath in written:
+            print(f"Saved to: {filepath}")
     else:
         print(to_markdown(result, include_transcript=args.include_transcript))
 
