@@ -8,17 +8,22 @@ r"""
     （`雪包→血包`、`断亲→断气`、`25岁→45岁`、`经营价值→经济价值`）。
     所以硬字幕应当作为一条独立、可复核的来源，而不是"顺手截几张图看看"。
 
-两个真实陷阱（本模块的核心设计都由此而来）：
+三个真实陷阱（本模块的核心设计都由此而来）：
     1. 低采样率会漏掉短卡片。2 fps 采样漏掉了只闪 0.4 秒的「更高级」与「病了」，
        前者直接改变句意（"更高级、更耐用、更能持续供血的血包" 变成 "更耐用…"）。
        因此默认 4 fps，并且必须给出"短卡片计数 + 采样风险"的自检，而不是假装完整。
     2. OCR 会稳定认错某些字：`赡→赠`、`白→自`、`干瘪→干`。校正表必须可配置且可审计。
+    3. 画面里的水印会被一起 OCR 出来（实测该视频字幕带内有会动的 `VAIKE DKOTIEEKALION`），
+       把卡片切得粉碎。因此有置信度门槛与噪声表，且都作用在**行**粒度：
+       水印行可以删，同卡里的正文行必须留下——绝不能按"卡片太短"来过滤。
 
 边界：
     - 只接受本地视频文件，不做网络取流；本模块不自动判断"谁对谁错"，
       交叉校验只负责把差异摆全（结论依赖上下文，见 docs/DECISIONS.md D21）。
     - OCR 引擎（rapidocr-onnxruntime）、ffmpeg 与抽帧调用都是可注入的可选依赖：
       没有引擎、没有 ffmpeg、没有真实视频也能把全部逻辑跑完（离线测试就是这么做的）。
+    - 噪声过滤只按置信度与正则判定，永不按"文本长度"判定：`更高级`、`病了` 这类
+      2-3 字短卡片是正文，必须保留；丢弃的数量与原因一律进自检报告，绝不静默。
 
 调用示例：
     python hard_subtitle.py video.mp4 --fps 4 --emit srt,json -o out/
@@ -53,13 +58,29 @@ DEFAULT_CORRECTIONS = {                        # 只收录真实踩过的三个 
     "白": "自",                                # 白己 -> 自己
     "干瘪": "干",                              # 干瘪 -> 干（长键必须先于任何单字规则）
 }
+DEFAULT_MIN_OCR_CONFIDENCE = 0.5               # 低于该分数的识别行视为噪声；rapidocr 正文通常 >0.9
 EMIT_FORMATS = ("srt", "txt", "json")          # 产出格式白名单；未知值必须显式失败
 OCR_INSTALL_HINT = 'pip install -e ".[hard-subtitle]"'  # 该 extra 已在 pyproject 里定义
 PROBE_TIMEOUT_SECONDS = 120                    # 探测只读元数据，超时说明路径/权限有问题
 SAMPLE_TIMEOUT_SECONDS = 3600                  # 4 fps 下长视频的抽帧可能很慢，不能按默认 120s 误杀
 DURATION_PATTERN = re.compile(r"Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)")   # ffmpeg -i 的诊断格式
 VIDEO_SIZE_PATTERN = re.compile(r"Video:.*?,\s*(\d{2,5})x(\d{2,5})")        # 形如 1080x1920
-WHITESPACE_PATTERN = re.compile(r"\s")         # 换行/空格只是排版，不参与交叉校验对齐
+SIGNIFICANT_PATTERN = re.compile(r"[\w\u4e00-\u9fff]")  # 与 verify_transcript/D21 一致：标点差异不算内容差异
+
+# --- 内置噪声表：只匹配水印特征与"不可能成为正文的 ASCII 碎片" ---
+# 为什么带否定前瞻：`^[A-Za-z0-9.]{1,3}$` 会把正常英文台词（OK / No / TV / AI / App）一起误杀，
+# 而过滤器的目标是水印碎片（bV / b.V / BV / BVM），不是"短"。常见英文词显式放行。
+# 为什么水印签名这么具体：该抖音水印是会动的字母 logo，OCR 会稳定产出
+# `VAIKE DKOTIEEKALION` 及其变体（DKOTIEEBALION / KOTIEEBVLION / KOFIEEBALION…）。
+# 默认表只认这些特征串，绝不使用"整行都是大写 ASCII"这类会误杀英文台词的通则；
+# 换一支视频的水印请用可重复的 --noise-pattern 补充。
+DEFAULT_NOISE_PATTERNS: tuple[tuple[str, re.Pattern], ...] = (
+    ("douyin_watermark", re.compile(r"VAIKE|VAIBE|DKOTIEE|KOTIEE|KOFIEE|BALION|VLION", re.IGNORECASE)),
+    ("short_ascii_fragment", re.compile(
+        r"^(?!(?i:ok|no|hi|tv|pc|ai|ip|us|it|is|in|on|at|go|so|my|me|we|he|up|id|app)$)"
+        r"[A-Za-z0-9][A-Za-z0-9._-]{0,2}$"                     # 含 `bV-` 这类带连字符的水印碎片
+    )),
+)
 
 
 # --- 依赖缺失时给出可执行的安装建议，而不是裸 ImportError ---
@@ -75,6 +96,8 @@ class HardSubtitleSettings(NamedTuple):
     band_offset_ratio: float = DEFAULT_BAND_OFFSET_RATIO       # 字幕带顶边位置（默认 62% 高度处开始）
     band_height: int | None = None                             # 显式像素高度，覆盖比例计算
     short_card_seconds: float = DEFAULT_SHORT_CARD_SECONDS     # 自检里"短卡片"的门槛
+    min_ocr_confidence: float = DEFAULT_MIN_OCR_CONFIDENCE     # 低于该分数的识别行按噪声丢弃，绝不静默
+    noise_patterns: tuple[str, ...] = ()                       # 额外的噪声正则；内置水印表始终生效
 
     def identity(self) -> dict:
         return self._asdict()                                  # 产出里回写参数，结论才可复核
@@ -92,6 +115,89 @@ class FrameSample(NamedTuple):
     gray: bytes                                                # 带内灰度像素，长度应为 width * height
     width: int
     height: int
+
+
+# --- 一次识别的结果：文本 + 置信度，让分数能一路走到自检报告 ---
+class RecognizedText(NamedTuple):
+    text: str                                                  # 识别到的多行文本（换行拼接）
+    confidence: float | None = None                            # 整帧最低行分；None 表示识别器不提供分数
+    lines: tuple[tuple[str, float | None], ...] = ()           # 每行文本与分数；为空时退回整帧置信度
+
+
+# --- 把注入的识别器返回值统一成 RecognizedText ---
+def coerce_recognition(value) -> RecognizedText:
+    if value is None:
+        return RecognizedText("", None)
+    if isinstance(value, RecognizedText):
+        return value
+    if isinstance(value, str):
+        return RecognizedText(value, None)                     # 注入的假识别器没有分数 -> 不按置信度丢弃
+    text = getattr(value, "text", None)
+    if text is None:
+        return RecognizedText(str(value), None)
+    confidence = getattr(value, "confidence", None)
+    lines = getattr(value, "lines", ()) or ()
+    return RecognizedText(str(text), None if confidence is None else float(confidence), tuple(lines))
+
+
+# --- 内置噪声表 + 调用方附加正则 ---
+def compile_noise_patterns(extra: Sequence[str] | None = None) -> list[tuple[str, re.Pattern]]:
+    compiled = list(DEFAULT_NOISE_PATTERNS)
+    for expression in extra or ():
+        try:
+            compiled.append((f"custom:{expression}", re.compile(expression)))
+        except re.error as exc:                                # 坏正则必须当场失败，而不是悄悄匹配不到
+            raise ValueError(f"invalid noise pattern {expression!r}: {exc}") from exc
+    return compiled
+
+
+# --- 单行是否命中噪声表：命中返回原因标签 ---
+def match_noise_label(line: str, patterns: Sequence[tuple[str, re.Pattern]]) -> str | None:
+    for label, regex in patterns:
+        if regex.search(line):
+            return label
+    return None
+
+
+# --- 行级过滤：水印常与正文同处一卡，按整卡丢弃会连正文一起丢 ---
+def filter_noise_lines(
+    lines: Sequence[tuple[str, float | None]],
+    *,
+    patterns: Sequence[tuple[str, re.Pattern]],
+    min_confidence: float | None,
+    corrections: dict | None,
+) -> tuple[list[str], list[str], int, int]:
+    kept: list[str] = []
+    reasons: list[str] = []
+    removed = 0
+    correction_hits = 0
+    for line, score in lines:
+        text = normalize_ocr_text(line)
+        if not text:
+            continue
+        fixed, hits = apply_corrections_counted(text, corrections)  # 校正先于过滤：先修 OCR 稳定误认，再判噪声
+        if min_confidence is not None and score is not None and float(score) < float(min_confidence):
+            reasons.append("low_confidence")                   # 低分行按噪声处理，但必须留痕
+            removed += 1
+            continue
+        label = match_noise_label(fixed, patterns)
+        if label:
+            reasons.append(label)
+            removed += 1
+            continue
+        kept.append(fixed)
+        correction_hits += hits                                # 只统计真正保留的行，避免虚高
+    return kept, reasons, removed, correction_hits
+
+
+# --- 把识别结果拆成待过滤的行（优先用带分数的行） ---
+def recognition_lines(recognized: RecognizedText) -> list[tuple[str, float | None]]:
+    if recognized.lines:
+        return [(text, score) for text, score in recognized.lines if normalize_ocr_text(text)]
+    text = normalize_ocr_text(recognized.text)
+    if not text:
+        return []
+    return [(line, recognized.confidence) for line in text.splitlines()]  # 无行分时整帧分数作用于每一行
 
 
 # --- 解析字幕带几何：比例默认，显式像素优先 ---
@@ -151,18 +257,18 @@ def load_ocr_engine(*, importer: Callable[[str], object] | None = None):
     return module.RapidOCR()                                   # onnxruntime 后端，CPU 即可跑
 
 
-# --- 把 OCR 引擎包装成"一帧 -> 多行文本"的可注入识别器 ---
-def build_recognizer(engine=None, *, importer: Callable[[str], object] | None = None) -> Callable[[FrameSample], str]:
+# --- 把 OCR 引擎包装成"一帧 -> RecognizedText"的可注入识别器 ---
+def build_recognizer(engine=None, *, importer: Callable[[str], object] | None = None) -> Callable[[FrameSample], RecognizedText]:
     active_engine = engine if engine is not None else load_ocr_engine(importer=importer)
 
-    def recognize(sample: FrameSample) -> str:
-        return recognize_frame(active_engine, sample)          # 闭包让调用方只关心 FrameSample
+    def recognize(sample: FrameSample) -> RecognizedText:
+        return recognize_frame(active_engine, sample)           # 闭包让调用方只关心 FrameSample
 
     return recognize
 
 
-# --- 单帧识别：灰度带 -> 换行拼接的多行文本 ---
-def recognize_frame(engine, sample: FrameSample) -> str:
+# --- 单帧识别：灰度带 -> 多行文本 + 分数 ---
+def recognize_frame(engine, sample: FrameSample) -> RecognizedText:
     numpy = _try_numpy()
     if numpy is None:
         raise HardSubtitleDependencyError(
@@ -171,13 +277,18 @@ def recognize_frame(engine, sample: FrameSample) -> str:
         )
     image = numpy.frombuffer(bytes(sample.gray), dtype=numpy.uint8).reshape(sample.height, sample.width)
     result, _elapsed = engine(image)                           # RapidOCR 约定：返回 (结果列表, 耗时)
-    return rapidocr_result_to_text(result)
+    entries = rapidocr_entries(result)
+    if not entries:
+        return RecognizedText("", None)                         # 空白帧不是错误，只是没有字幕
+    scores = [score for _text, score in entries if score is not None]
+    text = "\n".join(entry_text for entry_text, _score in entries)
+    return RecognizedText(text, min(scores) if scores else None, tuple(entries))
 
 
-# --- RapidOCR 结果 -> 按阅读顺序排列的多行文本 ---
-def rapidocr_result_to_text(result) -> str:
+# --- RapidOCR 结果 -> 按阅读顺序排列的 (文本, 分数) ---
+def rapidocr_entries(result) -> list[tuple[str, float | None]]:
     if not result:
-        return ""                                              # 空白帧不是错误，只是没有字幕
+        return []
     lines = []
     for entry in result:
         if len(entry) < 2:
@@ -185,14 +296,25 @@ def rapidocr_result_to_text(result) -> str:
         box, text = entry[0], str(entry[1]).strip()
         if not text:
             continue
+        score: float | None = None
+        if len(entry) >= 3:
+            try:
+                score = float(entry[2])                         # 置信度必须带出来，不能在这里丢掉
+            except (TypeError, ValueError):
+                score = None
         try:
             top = min(float(point[1]) for point in box)        # 用框顶边定位行
             left = min(float(point[0]) for point in box)       # 同一行内按左边排序
         except (TypeError, ValueError, IndexError):
             top, left = 0.0, 0.0                               # 拿不到几何信息时保持原顺序
-        lines.append((round(top / 10.0), left, len(lines), text))  # 10px 分桶吸收同一行的轻微抖动
+        lines.append((round(top / 10.0), left, len(lines), text, score))  # 10px 分桶吸收同一行的轻微抖动
     lines.sort()
-    return "\n".join(item[3] for item in lines)                # 多行必须用换行拼接，不能合成一行
+    return [(item[3], item[4]) for item in lines]              # 多行必须用换行拼接，不能合成一行
+
+
+# --- 兼容入口：只要文本 ---
+def rapidocr_result_to_text(result) -> str:
+    return "\n".join(text for text, _score in rapidocr_entries(result))
 
 
 # --- 应用校正表（长键优先，避免"干瘪"被拆开） ---
@@ -245,18 +367,22 @@ def normalize_ocr_text(text) -> str:
 def build_cards(
     samples: Sequence[FrameSample],
     *,
-    recognize: Callable[[FrameSample], str],
+    recognize: Callable[[FrameSample], RecognizedText | str],
     change_threshold: float = DEFAULT_CHANGE_THRESHOLD,
     corrections: dict | None = None,
     sampling_fps: float | None = None,
     video_duration: float | None = None,
+    min_confidence: float | None = None,
+    noise_patterns: Sequence[tuple[str, re.Pattern]] | None = None,
 ) -> tuple[list[dict], dict]:
     if not samples:
-        return [], {"sampled_frames": 0, "change_points": 0, "ocr_calls": 0,
-                    "cards": 0, "corrections_applied": 0}
+        return [], _empty_build_report()
+    patterns = tuple(DEFAULT_NOISE_PATTERNS if noise_patterns is None else noise_patterns)
 
-    change_points: list[tuple[int, str]] = []                  # (帧序号, 已校正文本)
+    observations: list[tuple[int, str, str]] = []              # (帧序号, 过滤后文本, 状态)
     corrections_applied = 0
+    noise_lines_removed = 0
+    line_reasons: dict[str, int] = {}
     previous_gray: Sequence[int] | None = None
     for index, sample in enumerate(samples):
         changed = previous_gray is None                        # 第一帧必须识别，否则整段没有起点
@@ -265,16 +391,29 @@ def build_cards(
         previous_gray = sample.gray                            # 无论是否 OCR 都要更新比较基准
         if not changed:
             continue                                           # 相邻帧相同 -> 不做 OCR，这是省时间的关键
-        raw_text = recognize(sample) or ""
-        fixed_text, hits = apply_corrections_counted(normalize_ocr_text(raw_text), corrections)
+        recognized = coerce_recognition(recognize(sample))
+        kept_lines, reasons, removed, hits = filter_noise_lines(
+            recognition_lines(recognized),
+            patterns=patterns,
+            min_confidence=min_confidence,
+            corrections=corrections,
+        )
+        for reason in reasons:
+            line_reasons[reason] = line_reasons.get(reason, 0) + 1
+        noise_lines_removed += removed
         corrections_applied += hits
-        change_points.append((index, fixed_text))
+        if kept_lines:
+            observations.append((index, "\n".join(kept_lines), "kept"))
+        elif reasons:
+            observations.append((index, "", reasons[0]))       # 整卡被判定为噪声，原因必须留痕
+        else:
+            observations.append((index, "", "empty"))          # 空识别只是"没有字幕"，不算噪声
 
-    runs: list[dict] = []                                      # 连续相同文本合并为一张卡片
-    for index, text in change_points:
-        if runs and runs[-1]["text"] == text:
+    runs: list[dict] = []                                      # 连续相同 (文本, 状态) 合并为一个 run
+    for index, text, status in observations:
+        if runs and runs[-1]["text"] == text and runs[-1]["status"] == status:
             continue                                           # 卡片内的噪声变化不产生新卡片
-        runs.append({"text": text, "start": round(float(samples[index].timestamp), 3)})
+        runs.append({"text": text, "status": status, "start": round(float(samples[index].timestamp), 3)})
 
     interval = sampling_interval(samples, sampling_fps)
     for position, run in enumerate(runs):
@@ -286,16 +425,36 @@ def build_cards(
             end = float(samples[-1].timestamp) + interval      # 不知道总时长时，用最后一帧加一个采样间隔
         run["end"] = round(max(end, run["start"]), 3)
 
-    cards = [{"start": run["start"], "end": run["end"], "text": run["text"]}
-             for run in runs if run["text"]]                   # 空文本只是"字幕消失"，不产出卡片
+    cards: list[dict] = []
+    dropped_cards: dict[str, int] = {}
+    for run in runs:
+        if run["status"] == "kept" and run["text"]:
+            cards.append({"start": run["start"], "end": run["end"], "text": run["text"]})
+        elif run["status"] == "empty":
+            continue                                           # 空文本只是"字幕消失"，不产出卡片也不计噪声
+        else:
+            dropped_cards[run["status"]] = dropped_cards.get(run["status"], 0) + 1
     report = {
         "sampled_frames": len(samples),
-        "change_points": len(change_points),
-        "ocr_calls": len(change_points),                       # 只在该数字上花 OCR 时间
+        "change_points": len(observations),
+        "ocr_calls": len(observations),                        # 只在该数字上花 OCR 时间
         "cards": len(cards),
         "corrections_applied": corrections_applied,
+        "noise_cards_dropped": sum(dropped_cards.values()),    # 绝不静默丢弃：数量与原因都要进报告
+        "noise_dropped_reasons": dropped_cards,
+        "noise_lines_removed": noise_lines_removed,            # 所有被删噪声行（含整卡被丢弃的那些）
+        "noise_line_reasons": line_reasons,
     }
     return cards, report
+
+
+# --- 空输入时的同形报告，保证调用方不必处理缺字段 ---
+def _empty_build_report() -> dict:
+    return {
+        "sampled_frames": 0, "change_points": 0, "ocr_calls": 0, "cards": 0, "corrections_applied": 0,
+        "noise_cards_dropped": 0, "noise_dropped_reasons": {}, "noise_lines_removed": 0,
+        "noise_line_reasons": {},
+    }
 
 
 # --- 采样间隔：优先相信真实帧时间，其次用 fps ---
@@ -318,6 +477,10 @@ def assess_completeness(
     sampled_frames: int,
     change_points: int,
     short_card_seconds: float = DEFAULT_SHORT_CARD_SECONDS,
+    noise_cards_dropped: int = 0,
+    noise_dropped_reasons: dict | None = None,
+    noise_lines_removed: int = 0,
+    noise_line_reasons: dict | None = None,
 ) -> dict:
     durations = [max(float(item["end"]) - float(item["start"]), 0.0) for item in cards]
     total = round(sum(durations), 3)
@@ -336,18 +499,27 @@ def assess_completeness(
             f"有 {len(short_cards)} 张卡片时长 < {short_card_seconds}s（最短 {round(min(short_cards), 3)}s）："
             f"这通常意味着还有更短的卡片落在两次采样之间被漏掉，建议提高 --fps 后重跑再比对。"
         )
+    if noise_cards_dropped:
+        warnings.append(                                        # 被丢掉的卡片会形成覆盖空洞，必须显式说明
+            f"有 {noise_cards_dropped} 张卡片按噪声丢弃（{noise_dropped_reasons or {}}）："
+            f"这些时间段不再有卡片覆盖，覆盖率会相应下降——不要当成提取完整。"
+        )
     return {
         "sampled_frames": sampled_frames,
         "change_points": change_points,
         "cards": len(cards),
         "cards_total_seconds": total,                          # 卡片总时长
         "video_duration": video_duration,
-        "caption_coverage_ratio": coverage_ratio,               # 卡片总时长 / 视频时长
+        "caption_coverage_ratio": coverage_ratio,               # 卡片总时长 / 视频时长（丢弃后自然下降）
         "sampling_fps": sampling_fps,
         "sampling_interval_seconds": interval,
         "short_card_seconds": short_card_seconds,
         "short_cards": len(short_cards),
         "shortest_card_seconds": round(min(durations), 3) if durations else None,
+        "noise_cards_dropped": noise_cards_dropped,             # 丢弃计数与原因分布：绝不静默
+        "noise_dropped_reasons": dict(noise_dropped_reasons or {}),
+        "noise_lines_removed": noise_lines_removed,             # 卡片保留但其中噪声行被删
+        "noise_line_reasons": dict(noise_line_reasons or {}),
         "warnings": warnings,
     }
 
@@ -411,12 +583,14 @@ def cross_check_with_asr(cards: Sequence[dict], asr_segments) -> dict:
     }
 
 
-# --- 字符 -> 时间 的流：空白不参与对齐 ---
+# --- 字符 -> 时间 的流：只对齐有效字符，标点与空白不参与 ---
+# 为什么忽略标点：ASR 与 OCR 的标点体系不同（"," vs "，" vs "、"），
+# 全算差异会让一堆逗号淹没真正的同音字（血/雪），这是 D21 已经踩过的坑。
 def _character_stream(segments: Sequence[dict]) -> list[tuple[str, float, float]]:
     stream: list[tuple[str, float, float]] = []
     for item in segments:
         for character in item["text"]:
-            if not WHITESPACE_PATTERN.match(character):
+            if SIGNIFICANT_PATTERN.match(character):
                 stream.append((character, float(item["start"]), float(item["end"])))
     return stream
 
@@ -527,7 +701,7 @@ def extract_cards(
     *,
     corrections: dict | None = None,
     frame_sampler: Callable[[str | Path, HardSubtitleSettings], tuple[list[FrameSample], float | None]] | None = None,
-    recognizer: Callable[[FrameSample], str] | None = None,
+    recognizer: Callable[[FrameSample], RecognizedText | str] | None = None,
     video_duration: float | None = None,
     asr_timeline=None,
 ) -> dict:
@@ -542,6 +716,7 @@ def extract_cards(
     if recognizer is None and samples:
         recognizer = build_recognizer()                          # 只有真的要 OCR 时才要求引擎存在
     recognize = recognizer or (lambda sample: "")
+    patterns = compile_noise_patterns(active.noise_patterns)     # 内置水印表 + --noise-pattern 附加项
 
     cards, card_report = build_cards(
         samples,
@@ -550,6 +725,8 @@ def extract_cards(
         corrections=active_corrections,
         sampling_fps=active.fps,
         video_duration=duration,
+        min_confidence=active.min_ocr_confidence,
+        noise_patterns=patterns,
     )
     report = dict(card_report)
     report.update(assess_completeness(
@@ -559,16 +736,25 @@ def extract_cards(
         sampled_frames=len(samples),
         change_points=card_report["change_points"],
         short_card_seconds=active.short_card_seconds,
+        noise_cards_dropped=card_report["noise_cards_dropped"],
+        noise_dropped_reasons=card_report["noise_dropped_reasons"],
+        noise_lines_removed=card_report["noise_lines_removed"],
+        noise_line_reasons=card_report["noise_line_reasons"],
     ))
+    if asr_timeline is not None:
+        # 既接受已经解析好的分段，也接受 --asr-timeline 那种 JSON 路径，避免调用方各写一遍加载逻辑。
+        segments = load_timeline(asr_timeline) if isinstance(asr_timeline, (str, Path)) else asr_timeline
+        report["cross_check"] = cross_check_with_asr(cards, segments)
     result = {
         "video": str(path),
         "duration": duration,
         "settings": active.identity(),                           # 参数回写，结论才能被复核
         "cards": cards,
-        "report": report,
+        "report": report,                                        # 自检报告的规范位置
+        "completeness": report,                                  # 同一份报告的别名，调用方按习惯取名
     }
-    if asr_timeline is not None:
-        report["cross_check"] = cross_check_with_asr(cards, asr_timeline)
+    if "cross_check" in report:
+        result["cross_check"] = report["cross_check"]            # 结论提到顶层，调用方不必知道它藏在 report 里
     return result
 
 
@@ -625,6 +811,8 @@ def render_summary(result: dict) -> str:
         f"- 时长：{result['duration']}s；采样帧 {report['sampled_frames']}；变化点（OCR 次数）{report['change_points']}",
         f"- 卡片总时长：{report['cards_total_seconds']}s（占视频 {report['caption_coverage_ratio']}）",
         f"- 短卡片（< {report['short_card_seconds']}s）：{report['short_cards']}；最短 {report['shortest_card_seconds']}s",
+        f"- 噪声丢弃：整卡 {report['noise_cards_dropped']}（{report['noise_dropped_reasons']}）；"
+        f"卡片内删除噪声行 {report['noise_lines_removed']}",
     ]
     for warning in report.get("warnings", []):
         lines.append(f"- ⚠ {warning}")
@@ -649,6 +837,10 @@ def main(argv=None) -> int:
     parser.add_argument("--band-height", type=int, default=None,
                         help="Explicit band height in pixels; overrides --band-bottom-ratio")
     parser.add_argument("--corrections", help="JSON object {'wrong': 'right'} overriding the built-in table")
+    parser.add_argument("--min-ocr-confidence", type=float, default=DEFAULT_MIN_OCR_CONFIDENCE,
+                        help=f"Drop OCR lines scoring below this (default {DEFAULT_MIN_OCR_CONFIDENCE}); drops are counted")
+    parser.add_argument("--noise-pattern", action="append", default=None,
+                        help="Extra noise regex; repeatable. Built-in watermark/short-ASCII filters always apply")
     parser.add_argument("--asr-timeline", help="ASR transcript JSON used for the character-level cross-check")
     parser.add_argument("-o", "--output", help="Output directory for --emit artifacts")
     parser.add_argument("--emit", help="Comma separated artifacts to write: srt,txt,json")
@@ -670,6 +862,8 @@ def main(argv=None) -> int:
         band_bottom_ratio=args.band_bottom_ratio,
         band_offset_ratio=args.band_offset_ratio,
         band_height=args.band_height,
+        min_ocr_confidence=args.min_ocr_confidence,
+        noise_patterns=tuple(args.noise_pattern or ()),
     )
     try:
         corrections = resolve_corrections(args.corrections)
@@ -681,13 +875,17 @@ def main(argv=None) -> int:
 
     report = result["report"]
     log(f"[hard_subtitle] cards={report['cards']} short_cards={report['short_cards']} "
-        f"frames={report['sampled_frames']} ocr_calls={report['change_points']}")
+        f"frames={report['sampled_frames']} ocr_calls={report['change_points']} "
+        f"noise_cards_dropped={report['noise_cards_dropped']}")
     for warning in report.get("warnings", []):
         log(f"[hard_subtitle] {warning}")                        # 采样风险写 stderr，不污染 stdout 的 JSON
 
     if formats:
         for path in write_emitted_artifacts(result, args.output, formats):
-            print(f"Saved to: {path}")
+            if args.json:
+                log(f"Saved to: {path}")                         # --json 时 stdout 必须始终是可解析的 JSON
+            else:
+                print(f"Saved to: {path}")
     if args.json:
         print(json.dumps(result, ensure_ascii=False, indent=2))
     elif not formats:
