@@ -378,7 +378,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Bilibili transcript: platform subtitles first, ASR when needed")
     parser.add_argument("bvid", help="Bilibili BV ID or video URL")
     parser.add_argument("--output-dir", "-o", help="Output directory for temp files")
-    parser.add_argument("--model", "-m", default="small",
+    parser.add_argument("--model", "-m", default="auto",
                         choices=["tiny", "base", "small", "medium", "large"],
                         help="ASR model size (default: small)")
     parser.add_argument("--cookies", "-c", help="Browser name (chrome/edge) or cookie file path")
@@ -392,6 +392,8 @@ if __name__ == "__main__":
     parser.add_argument("--keep-audio", "-k", action="store_true", help="Keep downloaded audio file")
     args = parser.parse_args()
 
+    args.model, model_reason = speech_to_text.resolve_model_size(args.model)   # auto 按设备解析（D43）
+    log(f"[bili] model={args.model} ({model_reason})")
     result = bilibili_transcribe(
         args.bvid,
         output_dir=args.output_dir,

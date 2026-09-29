@@ -22,7 +22,7 @@ from speech_to_text import TranscriptionSettings, transcribe_audio_file  # 复�
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Transcribe a local audio/video file to timestamped JSON.")
     parser.add_argument("--audio", required=True, help="本地音/视频文件路径（容器内含音轨即可）")
-    parser.add_argument("--model", default="small", help="faster-whisper 模型名，默认 small")
+    parser.add_argument("--model", default="auto", help="faster-whisper 模型名；auto（默认）= 有 CUDA 用 large，否则 small（D43）")
     parser.add_argument("--language", default="zh", help="语言代码，默认 zh；传 auto 让模型自行检测")
     parser.add_argument("--device", default=None, choices=[None, "auto", "cuda", "cpu"], help="留空或 auto = 自动选 GPU")
     parser.add_argument("--profile", default="balanced", choices=tuple(speech_to_text.PROFILE_OVERRIDES),
@@ -50,6 +50,8 @@ def main() -> int:
         return EXIT_NO_AUDIO_TRACK
 
     device = None if args.device in (None, "auto") else args.device   # auto 交还给 _choose_ctranslate2_device 探测。
+    args.model, model_reason = speech_to_text.resolve_model_size(args.model)         # auto 按设备解析（D43）
+    log(f"[asr] model={args.model} ({model_reason})")
     settings = TranscriptionSettings(
         model_size=args.model,
         language=args.language,

@@ -101,6 +101,11 @@
 - 无音轨：用 ffmpeg 现场生成有/无音轨真实文件双向验证；`extract_audio` 抛 `NoAudioTrackError`；
   通用入口返回 27；退出码互不重复。
 
+### 模型档位自适应
+
+- `auto` + 有 CUDA → `large`（依据 `auto:cuda`）；无 CUDA → `small`（`auto:cpu`）。
+- 显式指定必须被尊重；`large-v3` 归一为 `large`；空值/None 按 `auto` 处理。
+
 ### 标点规则与质量指标
 
 - 每个分段边界都必须插标点（抬高阈值会让密度不足，F1 从 0.313 掉到 0.033——实测结论）。
