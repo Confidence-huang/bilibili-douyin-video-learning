@@ -26,7 +26,15 @@ if str(SCRIPTS_DIR) not in sys.path:
 import media_tools  # noqa: E402 被测的音轨检测。
 from cli_anything.video_learning.utils import exit_codes  # noqa: E402 退出码契约。
 
-FFMPEG = media_tools.find_ffmpeg()
+# --- ffmpeg 在 CI 里可能完全不存在：模块级查找必须容错，否则整个文件收集失败 ---
+def _ffmpeg_path() -> str | None:
+    try:
+        return media_tools.find_ffmpeg()
+    except Exception:
+        return None                                             # 没有 ffmpeg 时只跳过"现场生成真实媒体"的用例
+
+
+FFMPEG = _ffmpeg_path()
 requires_ffmpeg = pytest.mark.skipif(not FFMPEG or not shutil.which(FFMPEG),
                                      reason="需要 ffmpeg 才能现场生成真实媒体")
 
