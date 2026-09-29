@@ -2,6 +2,34 @@
 
 All notable public changes are recorded here.
 
+## 1.21.0 - 2026-09-29
+
+- **A runtime regression that 343 passing tests did not catch.** v1.19.0 broke
+  `transcribe_bilibili.py` at runtime: the file only did `from speech_to_text import
+  transcribe_audio_file`, while the new code called `speech_to_text.resolve_model_size(...)`, so the
+  CLI died with NameError. Nothing caught it because that script keeps its argparse at module level
+  and has no callable entry point, so no test ever executed its main path. The module is now
+  imported, a guard test pins that binding, and the record says plainly that **running the CLI for
+  real** is what found it. An attempt to refactor the script into a testable `cli_main(argv)` hit a
+  slicing error, the script rolled the file back automatically rather than leaving it broken, and the
+  smaller guard was chosen instead. See D45.
+- **A second Bilibili gold, chosen because it is hard.** BV1Kyas6wEuz (109s: narration, then
+  meme-dubbed audio over music) came out 12 rows kept, 2 corrected and **22 unresolved** - past about
+  43 seconds both configurations fall apart, so those rows are marked unresolved rather than guessed
+  at. Its value is recording the credibility ceiling for that kind of material. Two corrections are
+  certain: 相声响起 to 枪声响起 (the starting signal) and 向前农 to 向前冲.
+- **One metric in that gold is tautological and says so.** Its punctuation was copied from the large
+  draft, so the table's `punct_f1 = 1.0` for bili2-large proves nothing about punctuation quality;
+  the artifact states this rather than letting the number stand.
+- **New data strengthens the device-aware default**: on the harder material, large scores CER 0.0051
+  against small's 0.2298 - a 45x gap - with coverage 0.9982 against 0.9236. Combined with the first
+  sample (13x) and the Douyin sample (2.3x), `auto` picking large on CUDA is well supported.
+- **The benchmark's timeline column finally works.** It had been reading `None`; the real structure is
+  `report["timeline_offset"]` with `median_seconds`, found by inspecting rather than guessing - after
+  three wrong guesses in two rounds, each of which surfaced as a silent `None`, the most misleading
+  outcome possible.
+- Tests: **349 passing** offline cases.
+
 ## 1.20.0 - 2026-09-29
 
 - **One command now shows the whole picture.** `scripts/run_benchmark.py` takes repeatable

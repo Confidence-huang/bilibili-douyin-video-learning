@@ -34,6 +34,7 @@ import tempfile
 
 from normalize_transcript import TranscriptSchemaError, normalize_segments            # 分段形状的唯一适配层
 from speech_to_text import transcribe_audio_file                                  # 统一使用 faster-whisper 优先的本机 ASR 入口
+import speech_to_text                                                             # 需要模块本身：resolve_model_size 按设备解析（D43）
 from runtime_output import (  # 退出码契约：Agent 要能区分"取流失败"与"本机转写失败"
     EXIT_SHARE_PAGE_UNAVAILABLE,
     EXIT_TRANSCRIPTION_FAILED,
