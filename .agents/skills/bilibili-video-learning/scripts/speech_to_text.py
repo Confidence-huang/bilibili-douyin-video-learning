@@ -12,12 +12,14 @@ from __future__ import annotations                                              
 
 import os                                                                        # 模型指纹需要读 HF_HOME 与用户缓存目录
 import sys                                                                       # 输出解释器路径，帮助确认是否来自 uv venv
+import tempfile                                                                  # 分块切片放在临时目录，退出即清理（D38）
 import traceback                                                                 # fallback 失败时保留可诊断的错误栈
 from pathlib import Path                                                         # 统一处理 Windows 音频路径
 from typing import NamedTuple                                                    # 参数对象必须能被测试加载器动态加载（见 D16）
 
 import asr_coverage                                                              # 覆盖率校验与局部补转（不依赖任何模型）
 import asr_hallucination                                                         # 补转结果的幻觉门与标注（D34）
+import asr_chunking                                                              # 长音频分块（D38）
 import asr_refine                                                                # 可疑区间的定向二次解码（D27）
 import functools                                                                 # 模型指纹按尺寸缓存，避免每次 identity() 都扫盘
 import asr_lexicon                                                              # 领域词表（见 D26）
@@ -48,6 +50,8 @@ class TranscriptionSettings(NamedTuple):
     profile: str = "balanced"                                                    # fast/balanced/quality，见 apply_profile
     refine_low_confidence: bool = False                                          # 是否对低置信区间做定向二次解码（D27）
     normalize_audio: bool = True                                                 # 抽音频时是否做 highpass+loudnorm 净化（D26）
+    chunk_length: float = 0.0                                                    # 长音频分块长度（秒）；0 = 关闭，既有行为不变（D38）
+    chunk_overlap: float = 2.0                                                   # 相邻块重叠秒数：避免切在词中间丢字
     hallucination_gate: bool = True                                              # 补转窗口是否过幻觉门（D34）
     hallucination_compression_ratio: float = 2.4                                 # 压缩比阈值：更高视为复读/幻觉
 
@@ -92,6 +96,40 @@ def model_fingerprint(model_size: str) -> str | None:
             stat = weights[0].stat()
             return f"{weights[0].name}:{stat.st_size}:{int(stat.st_mtime)}"      # 不读内容，只看身份相关元数据
     return None                                                                  # 找不到就如实不记，而不是编一个值
+
+
+# --- 长音频分块：切块 → 逐块转写（关闭分块）→ 按时移合并（D38）---
+def _transcribe_with_chunks(audio: Path, settings: TranscriptionSettings, *, model_size: str, language: str,
+                            device: Optional[str], log_prefix: str, allow_openai_fallback: bool) -> dict:
+    if settings.chunk_length <= 0:                                                # 防御性回退：未启用就整段解码
+        return transcribe_audio_file(audio, model_size=model_size, language=language, device=device,
+                                     log_prefix=log_prefix, allow_openai_fallback=allow_openai_fallback,
+                                     settings=settings._replace(chunk_length=0.0))
+    duration = asr_coverage.audio_duration_seconds(audio)
+    plan = asr_chunking.plan_chunks(duration, settings.chunk_length, settings.chunk_overlap)
+    if not plan:                                                                  # 短音频：退回整段解码
+        return transcribe_audio_file(audio, model_size=model_size, language=language, device=device,
+                                     log_prefix=log_prefix, allow_openai_fallback=allow_openai_fallback,
+                                     settings=settings._replace(chunk_length=0.0))
+    log(f"[{log_prefix}] chunked transcription: {len(plan)} chunk(s) of {settings.chunk_length:.0f}s")
+    results: list = []
+    with tempfile.TemporaryDirectory(prefix="asr_chunks_") as workspace:
+        for item in plan:
+            clip = Path(workspace) / f"chunk_{item['index']:03d}.wav"
+            asr_coverage.cut_audio_window(audio, item["start"], item["end"], clip)
+            chunk_result = transcribe_audio_file(
+                clip, model_size=model_size, language=language, device=device,
+                log_prefix=f"{log_prefix}:chunk{item['index']}",
+                allow_openai_fallback=allow_openai_fallback,
+                settings=settings._replace(chunk_length=0.0))                      # 子调用不再分块，避免递归
+            results.append({"start": item["start"], "segments": chunk_result.get("segments") or []})
+    merged = asr_chunking.merge_chunk_results(results)
+    total = sum(len(item.get("segments") or []) for item in results)
+    result = {"segments": merged, "text": "".join(str(item.get("content") or "") for item in merged),
+              "duration": duration, "device": device, "chunked": True, "chunks": plan,
+              "diagnostics": [asr_chunking.chunking_diagnostic(plan, len(merged), total - len(merged))]}
+    log(f"[{log_prefix}] chunked transcription done: {len(merged)} segment(s)")
+    return result
 
 
 # --- 读取当前环境里的 ASR 引擎版本 ---
@@ -435,6 +473,12 @@ def transcribe_audio_file(
     audio = Path(audio_path)                                                       # 把调用方传入的字符串或 Path 统一成 Path
     if not audio.exists():                                                         # 音频不存在时直接失败，避免误报 ASR 问题
         raise FileNotFoundError(f"Audio file not found: {audio}")
+
+    active_settings = settings or TranscriptionSettings()
+    if active_settings.chunk_length and active_settings.chunk_length > 0:          # 长音频分块（D38）
+        return _transcribe_with_chunks(audio, active_settings, model_size=model_size, language=language,
+                                      device=device, log_prefix=log_prefix,
+                                      allow_openai_fallback=allow_openai_fallback)
 
     active = settings or TranscriptionSettings(model_size=model_size, language=language)  # 未显式传参数时沿用历史默认值
 
