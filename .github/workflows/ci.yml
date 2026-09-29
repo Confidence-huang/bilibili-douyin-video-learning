@@ -104,7 +104,7 @@ jobs:
         run: |
           $skillRoot = Join-Path $PWD ".agents\skills\bilibili-video-learning"
           uv venv .ci-venv --python 3.12
-          uv pip install --python .\.ci-venv\Scripts\python.exe pytest click prompt-toolkit requests setuptools imageio-ffmpeg  # 同上：CI 也要能生成真实媒体
+          uv pip install --python .\.ci-venv\Scripts\python.exe pytest click prompt-toolkit requests setuptools pyyaml imageio-ffmpeg  # 同上：CI 也要能生成真实媒体
           uv pip install --python .\.ci-venv\Scripts\python.exe --no-deps -e "$skillRoot\agent-harness"
 
       - name: Run offline tests without the multi-GB GPU runtime
