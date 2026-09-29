@@ -118,7 +118,8 @@ def test_chunked_path_prevents_recursion_and_merges(monkeypatch, tmp_path):
 
     def fake_transcribe(audio, **kwargs):
         calls.append(kwargs.get("settings"))
-        return {"segments": [{"from": 0.0, "to": 1.5, "content": f"块{len(calls)}"}]}
+        return {"segments": [{"from": 0.0, "to": 1.5, "content": f"块{len(calls)}"}],
+                "device": "cuda", "diagnostics": [{"step": "asr_engine", "ok": True, "message": "ok"}]}
 
     monkeypatch.setattr(speech_to_text, "transcribe_audio_file", fake_transcribe)
     chunked_settings = speech_to_text.TranscriptionSettings()._replace(chunk_length=600.0)
@@ -131,6 +132,8 @@ def test_chunked_path_prevents_recursion_and_merges(monkeypatch, tmp_path):
     assert result["chunked"] is True and len(result["segments"]) == 2
     assert result["segments"][1]["from"] == pytest.approx(598.0)           # 第二块按时移平移
     assert result["diagnostics"][0]["step"] == "asr_chunking"
+    assert result["device"] == "cuda"                                      # 必须报实际用到的设备（D40）
+    assert any(item.get("step") == "asr_engine" for item in result["diagnostics"])   # 子诊断不能被吞掉
 
 
 # --- 分块不适用时必须退回整段解码，且真的一次都不切块 ---

@@ -2,6 +2,30 @@
 
 All notable public changes are recorded here.
 
+## 1.16.0 - 2026-09-29
+
+- **First real 30+ minute calibration, on material found in the wild.** A 46.4 minute Bilibili
+  maths lecture was transcribed both ways with `small` on cuda. Whole-file: 93.5s (29.8x real
+  time), 1561 segments, 13809 characters. Chunked at 600s with a 2s overlap: 132.5s (21.0x),
+  1512 segments, 13794 characters, 5 chunks. Text similarity 0.9052 with a character difference
+  of just -15 (0.11%), so at this length 600s chunks are equivalent in content - but chunking was
+  **42% slower**, because each chunk reloads the model. Chunking buys resilience and a memory
+  ceiling, not speed. On this GPU a 46 minute file decodes whole without trouble. See D40.
+- **Audio front end measured on two more materials.** On a clean lecture slice the front end is
+  text-neutral: 844 characters and 80 segments either way, byte-identical output. On a music
+  track both settings produced empty output - sung vocals are outside what this path transcribes,
+  which is a capability boundary worth stating rather than hiding. Neither result contradicts the
+  17% CER gain measured earlier, because that measurement had a gold transcript and these do not.
+- **The experiment caught two defects of mine that unit tests could not.** The chunked path
+  reported `device: None` while actually running on cuda (it read the function argument instead of
+  the sub-call's real device), and it dropped every per-chunk diagnostic, so the coverage and
+  hallucination-gate verdicts for each chunk vanished on merge. Both are fixed, with assertions.
+- **The validator now has its own regression test.** I appended functions after the
+  `if __name__ == "__main__":` block three times in one round, and the last time left two such
+  blocks, the earlier one calling `main` before it was defined - and nothing failed, because the
+  validator is the thing that runs other people's checks. A test now imports it and runs `main()`.
+- Tests: **336 passing** offline cases.
+
 ## 1.15.0 - 2026-09-29
 
 - **`doctor status` now reports Skill assets**: how many lexicon entries and verified conflict
