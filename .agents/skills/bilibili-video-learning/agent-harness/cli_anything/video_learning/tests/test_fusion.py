@@ -22,7 +22,9 @@ import pytest  # 提供 monkeypatch 与 tmp_path。
 SKILL_ROOT = Path(__file__).resolve().parents[4]  # tests -> video_learning -> cli_anything -> agent-harness -> Skill。
 SCRIPTS_DIR = SKILL_ROOT / "scripts"  # live 后端脚本的唯一来源目录。
 ASR_FIXTURE = Path(__file__).resolve().parent / "fixtures" / "asr_vad_dropped_speech.json"  # 真实 180 段 ASR。
-DOUYIN_SRT = Path("/home/a/deepseek_project/Project_7 学习视频/outputs/男性是最好的血包-逐字稿.srt")  # 真实硬字幕卡片。
+# 真实硬字幕卡片（217 条 cue）随仓库分发：文本可以入库，媒体不行；
+# 用规范 JSON 而不是 SRT，既避开 .gitignore 的 *.srt 规则，也与仓库的规范形状一致（D25 的同一条原则）。
+DOUYIN_CAPTIONS = SKILL_ROOT / "agent-harness" / "cli_anything" / "video_learning" / "tests" / "fixtures" / "douyin_caption_cards.json"
 SIGNIFICANT = re.compile(r"[^\W_\s]", re.UNICODE)  # 与 FUSION_SIGNIFICANT_PATTERN 同一口径。
 
 if str(SCRIPTS_DIR) not in sys.path:  # 动态加载脚本前先满足它们的同目录导入。
@@ -343,12 +345,11 @@ def test_bilibili_no_prefer_subtitles_uses_asr_path(monkeypatch, tmp_path):
 
 
 # --- 真实素材：抖音硬字幕为主源、真实 ASR 为次源融合一次 ---
-@pytest.mark.skipif(not (DOUYIN_SRT.is_file() and ASR_FIXTURE.is_file()),
-                    reason="需要仓库外的真实抖音硬字幕与 ASR fixture")
+@pytest.mark.skipif(not (DOUYIN_CAPTIONS.is_file() and ASR_FIXTURE.is_file()),
+                    reason="需要真实抖音硬字幕与 ASR fixture（随仓库分发）")
 def test_real_douyin_caption_and_asr_fuse_without_losing_content():
     verify = load_script("verify_transcript")
-    convert = load_script("convert_subtitle")
-    captions = convert.detect_and_parse(str(DOUYIN_SRT))  # 217 条真实硬字幕卡片
+    captions = json.loads(DOUYIN_CAPTIONS.read_text(encoding="utf-8"))["segments"]  # 217 条真实硬字幕卡片
     asr_segments = json.loads(ASR_FIXTURE.read_text(encoding="utf-8"))["segments"]  # 真实 180 段 ASR
 
     report = verify.fuse_transcripts(captions, asr_segments)
