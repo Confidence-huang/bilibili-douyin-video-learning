@@ -96,21 +96,27 @@ def test_unloadable_libraries_are_reported_without_raising(monkeypatch, tmp_path
     assert "gpu-cuda12" in (report.get("guidance") or "")
 
 
-# --- LD_LIBRARY_PATH 只能被追加一次（幂等） ---
+# --- 预加载必须幂等，且两个平台各自用对的机制 ---
 def test_prepare_is_idempotent_for_the_library_path(monkeypatch, tmp_path):
     site_packages = fake_nvidia_tree(tmp_path)
     monkeypatch.setattr(sys, "prefix", str(tmp_path))
     monkeypatch.setattr(sys, "base_prefix", str(tmp_path))
     monkeypatch.setenv("LD_LIBRARY_PATH", "/existing/path")
 
-    cuda_runtime.prepare_cuda_libraries()
-    first = os.environ["LD_LIBRARY_PATH"]
-    cuda_runtime.prepare_cuda_libraries()
+    first_report = cuda_runtime.prepare_cuda_libraries()
+    second_report = cuda_runtime.prepare_cuda_libraries()
 
-    assert os.environ["LD_LIBRARY_PATH"] == first  # 第二次不重复追加
-    assert first.count(str(site_packages / "nvidia" / "cublas" / "lib")) == 1
-    assert first.endswith("/existing/path")  # 既有条目被保留在后面
-    assert "cudart" not in first or True  # 依赖顺序由预加载保证，路径顺序不做断言
+    if os.name == "nt":
+        # Windows 用 os.add_dll_directory 注册 DLL 目录，不应改动 LD_LIBRARY_PATH
+        assert os.environ["LD_LIBRARY_PATH"] == "/existing/path"
+        assert first_report["platform"] == "windows"
+        assert second_report["platform"] == "windows"  # 第二次调用同样不抛错
+    else:
+        first = os.environ["LD_LIBRARY_PATH"]
+        assert os.environ["LD_LIBRARY_PATH"] == first  # 第二次不重复追加
+        assert first.split(os.pathsep).count(str(site_packages / "nvidia" / "cublas" / "lib")) == 1
+        assert first.endswith("/existing/path")  # 既有条目被保留在后面
+        assert first_report["path_updated"] is True
 
 
 # --- 可用性判断：三种情形必须给出不同结论 ---
