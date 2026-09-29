@@ -145,7 +145,14 @@ def compare_baseline(rows: List[Dict[str, Any]], baseline: Dict[str, Any]) -> Li
         if reference is None:
             problems.append(f"{row['case']}: 基线里没有这个用例（新增用例请先记录基线）")
             continue
-        expected, tolerance = reference.get("cer"), reference.get("tolerance", 0.005)
+        expected = reference.get("cer")
+        by_mode = reference.get("cer_by_mode") or {}
+        if by_mode:                                                       # 优先按"归一模式"取基线（跨环境可比）
+            expected = by_mode.get(row.get("norm"))
+            if expected is None:
+                problems.append(f"{row['case']}: 基线里没有模式 {row.get('norm')} 的记录（新环境请先记录）")
+                continue
+        tolerance = reference.get("tolerance", 0.005)
         if row.get("cer") is None or expected is None:
             problems.append(f"{row['case']}: CER 缺失，无法与基线比较")
             continue

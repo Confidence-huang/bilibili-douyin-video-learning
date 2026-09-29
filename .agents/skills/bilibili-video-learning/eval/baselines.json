@@ -1,10 +1,14 @@
 {
- "_comment": "金标基线：run_benchmark.py --baseline eval/baselines.json 比对。劣化超容差即失败；改善打印 IMPROVED 并提示更新。",
- "_environment": "**数字依赖归一环境**：CI 与本地都安装 zh-normalize（OpenCC），因此繁简归一都是 opencc 模式，数字可比。若移除该依赖，归一降级会让 CER 变化（例如 bili1-small 0.1111 → 0.1282），届时必须同步更新本文件并说明环境。表里的 norm 列会显示当前模式。",
+ "_comment": "金标基线：run_benchmark.py --baseline eval/baselines.json 比对。劣化超容差即失败；改善打印 IMPROVED。",
+ "_environment": "**CER 依赖归一模式**（繁简归一有 OpenCC 走 opencc、缺失则降级）。因此每个用例按模式各记一条 `cer_by_mode`，运行时按本次的 norm 标签取对应基线——这样 Linux 与 Windows、装与不装 zh-normalize 都能各比各的，不需要放宽闸门。未知模式会要求先记录。",
  "cases": [
-  {"case": "bili1-large", "cer": 0.0085, "tolerance": 0.005, "note": "B站 30 秒教程 large"},
-  {"case": "bili1-small", "cer": 0.1111, "tolerance": 0.01, "note": "同素材 small（对照，不是达标线）"},
-  {"case": "bili2-large", "cer": 0.0051, "tolerance": 0.005, "note": "B站 109 秒劣化素材 large"},
-  {"case": "bili2-small", "cer": 0.2298, "tolerance": 0.02, "note": "同素材 small（对照）"}
+  {"case": "bili1-large", "cer_by_mode": {"t2s:on+n": 0.0085, "t2s:off+n": 0.0085}, "tolerance": 0.005,
+   "note": "large 档位两模式一致（该产出无繁体字）"},
+  {"case": "bili1-small", "cer_by_mode": {"t2s:on+n": 0.1111, "t2s:off+n": 0.1282}, "tolerance": 0.01,
+   "note": "small 只能作对照，不是达标线"},
+  {"case": "bili2-large", "cer_by_mode": {"t2s:on+n": 0.0051, "t2s:off+n": 0.0051}, "tolerance": 0.005,
+   "note": "同上"},
+  {"case": "bili2-small", "cer_by_mode": {"t2s:on+n": 0.2298, "t2s:off+n": 0.3662}, "tolerance": 0.02,
+   "note": "同素材 small 对照"}
  ]
 }
