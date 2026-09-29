@@ -101,3 +101,35 @@ def test_note_renderers_are_wired():
     for script in ("douyin_extract", "fetch_bilibili"):
         source = (SCRIPTS_DIR / f"{script}.py").read_text(encoding="utf-8")
         assert "render_review_section" in source, f"{script}.to_markdown 未接入分歧小节"
+
+
+# ============================ 笔记里的"这份稿子经过了什么处理"（D50） ============================
+
+# --- 有诊断就渲染成表；缺字段的那行不出现（绝不编造）---
+def test_processing_section_renders_diagnostics():
+    payload = {"diagnostics": [
+        {"step": "simplify", "ok": True, "message": "繁简归一已生效（7 段被改写）"},
+        {"step": "asr_chunking", "ok": True, "message": "4 chunk(s), 10 segment(s) kept, 0 duplicate(s) dropped"},
+        {"step": "asr_engine", "ok": True, "message": "ok"},                      # 引擎行由字段单独呈现
+    ], "engine": "faster-whisper", "device": "cuda", "model_size": "large"}
+
+    section = review_section.render_processing_section(payload)
+
+    assert "这份稿子经过了什么处理" in section
+    assert "繁简归一" in section and "已生效" in section
+    assert "长音频分块" in section and "4 chunk" in section
+    assert "faster-whisper / cuda / large" in section
+    assert "asr_engine" not in section                                          # 不把内部步骤名直接抛给读者
+
+
+# --- 没有任何诊断时返回空串：不许出现空的"处理说明"小节 ---
+def test_processing_section_is_empty_without_diagnostics():
+    assert review_section.render_processing_section({}) == ""
+    assert review_section.render_processing_section({"diagnostics": [{"step": "asr_engine"}]}) == ""
+
+
+# --- 未知步骤不得进入表格（避免把内部实现细节泄漏成"处理说明"）---
+def test_processing_section_ignores_unknown_steps():
+    section = review_section.render_processing_section({"diagnostics": [{"step": "内部步骤", "ok": True}]})
+
+    assert section == ""

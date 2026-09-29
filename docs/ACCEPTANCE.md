@@ -70,6 +70,19 @@ run_benchmark.py --case ...(四例)... --baseline eval/baselines.json
 - 报告的 `normalization.traditional_to_simplified` 是**行为判定**的真实值（`opencc` / `fallback`），
   不是"尝试过"的布尔值——曾经写死 `True`，正是它让跨环境基线永远对不上（D48）。
 
+## 数字来源（每个 CER 都要能追溯）
+
+| 数字 | 测于 | 归一模式 | 命令 |
+|---|---|---|---|
+| bili1-large 0.0085 / bili2-large 0.0051 | v1.23.0（首次记录基线） | 两种模式相同 | `run_benchmark.py --baseline eval/baselines.json` |
+| bili1-small 0.1111 / bili2-small 0.2298 | v1.23.0，`t2s:opencc` 环境 | opencc | 同上（`norm` 列） |
+| bili1-small 0.1282 / bili2-small 0.3662 | v1.23.0，CI 的 `t2s:fallback` 环境 | fallback | 同上 |
+| 抖音 large-v3 CER 0.0187 | v1.7.0 路线图评测 | 数字归一开启 | `eval_asr.py --hypothesis <产出> --gold douyin-...json` |
+| 标点 F1 0.313 | v1.18.0 | 同上 | 同上（`punctuation` 字段） |
+| 46.4 分钟分块：93.5s vs 132.5s，相似度 0.9052 | v1.16.0 | 无关 | `docs/experiments/run_experiments.py` |
+
+**目前每个用例只有一个数据点，因此不写趋势**；等同一用例在不同版本上重复测量后再在此表补行。
+
 ## 金标的证据强度（不要混用）
 
 | `reference.kind` | 强度 | 用途 |

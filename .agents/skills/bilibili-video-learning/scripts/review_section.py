@@ -55,3 +55,36 @@ def render_review_section(payload: Dict[str, Any], *, limit: int = 30) -> str:
         lines += ["", f"其中 **{len(preference_hits)}** 处已由已验证的裁决表改判"
                       "（`references/conflict-preferences.txt`），可优先复核这几处。"]
     return "\n".join(lines)
+
+
+# --- 诊断步骤 → 一行人话（缺哪条就少哪行，绝不编造）---
+PROCESSING_LABELS = {
+    "simplify": ("繁简归一", lambda item: item.get("message")),
+    "asr_chunking": ("长音频分块", lambda item: item.get("message")),
+    "asr_coverage": ("覆盖率兜底", lambda item: item.get("message")),
+    "asr_hallucination_gate": ("幻觉门（拒收窗口）", lambda item: item.get("message")),
+    "asr_hallucination_marks": ("幻觉标注", lambda item: item.get("message")),
+    "local_video": ("本地文件入口", lambda item: item.get("message")),
+    "browser_fetch": ("浏览器取流", lambda item: item.get("message")),
+}
+
+
+# --- 渲染"处理说明"：读产出里的诊断，让读笔记的人知道这份稿子经过了什么 ---
+def render_processing_section(payload: Dict[str, Any]) -> str:
+    diagnostics = payload.get("diagnostics") or []
+    rows = []
+    for item in diagnostics:
+        step = str(item.get("step") or "")
+        if step not in PROCESSING_LABELS or step == "asr_engine":
+            continue
+        label, extract = PROCESSING_LABELS[step]
+        message = extract(item) or ("已生效" if item.get("ok") else "未生效")
+        rows.append(f"| {label} | {message} |")
+    engine = payload.get("engine") or payload.get("transcription_engine")
+    device = payload.get("device") or payload.get("transcription_device")
+    model = payload.get("model_size") or payload.get("transcription_model")
+    if engine or device or model:
+        rows.append(f"| 转写引擎 | {engine or '—'} / {device or '—'} / {model or '—'} |")
+    if not rows:
+        return ""
+    return "\n".join(["", "## 这份稿子经过了什么处理", "", "| 环节 | 结果 |", "|---|---|"] + rows)
