@@ -157,12 +157,12 @@ def _run_faster_whisper(
         model, segments, transcription_info = load_model(device, compute_type)     # 同一份音频改用 CPU 再跑一遍
 
     def transcribe_window(clip_path: Path) -> list[dict]:
-        window_reading, _ = model.transcribe(                                      # 补转窗口一律关闭 VAD：这正是它上次丢字的原因
+        window_reading, _ = model.transcribe(                                      # 把丢掉的窗口单独切出来重新解码，上下文完全不同
             str(clip_path),
             language=settings.language,
             task="transcribe",
             beam_size=settings.beam_size,
-            vad_filter=False,                                                      # 已实测窗口有声音，不需要再让 VAD 判断一次
+            vad_filter=False,                                                      # 丢字原因不是 VAD（见 D16），这里只是换一种解码条件重试
             condition_on_previous_text=False,
         )
         return _reading_to_segments(window_reading)
@@ -312,7 +312,6 @@ def transcribe_audio_file(
         audio,
         result["segments"],
         transcribe_window=engine_runner,                                           # 由引擎注入“窗口 -> 分段”的实现
-        vad_filter=active.vad_filter,                                              # 未启用静音过滤时不存在被吞的风险
         coverage_floor=active.coverage_floor,
         gap_min_seconds=active.gap_min_seconds,
         speech_dbfs=active.speech_dbfs,

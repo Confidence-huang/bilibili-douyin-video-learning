@@ -1,5 +1,5 @@
 {
- "_comment": "Real faster-whisper (large-v3, vad_filter=True) output for a 259.77s Douyin video. The VAD pass silently dropped 196.24-201.84s of loud speech; see docs/DECISIONS.md D16.",
+ "_comment": "Real faster-whisper large-v3 output (CPU/int8, beam_size=5, word_timestamps=True, initial_prompt, vad_parameters min_silence=400/speech_pad=200) for a 259.77s Douyin video. No segment covers 196.24-201.84s even though that window measures -12.9 dBFS, i.e. real speech was lost silently. The loss is NOT caused by VAD: with vad_filter=False the same configuration loses an identical 52.42-57.98s window. Loss position varies per configuration, which is why only a runtime coverage check can catch it. See docs/DECISIONS.md D16.",
  "audio_duration": 259.77,
  "vad_filter": true,
  "model_size": "large-v3",
@@ -904,5 +904,16 @@
    "to": 259.16,
    "content": "你首先得是你自己"
   }
- ]
+ ],
+ "_provenance": {
+  "reproducible_with_this_config": true,
+  "identical_rerun": "180 segments, 1890 chars, coverage 0.9760, same 196.24-201.84s gap",
+  "vad_filter": true,
+  "beam_size": 5,
+  "word_timestamps": true,
+  "vad_parameters": {
+   "min_silence_duration_ms": 400,
+   "speech_pad_ms": 200
+  }
+ }
 }

@@ -18,9 +18,9 @@ All notable public changes are recorded here.
   therefore fully testable without a model, ffmpeg or network access. See D16.
 - **VAD is now tunable and recorded.** `TranscriptionSettings` carries
   `vad_min_silence_ms` (default 2000, matching faster-whisper) and `vad_speech_pad_ms`
-  (default 400); `douyin_extract.py` exposes `--vad-min-silence-ms`. Previously VAD
-  aggressiveness could not be configured at all, and the loss recorded in D16 happened
-  under a non-default VAD setting.
+  (default 400); `douyin_extract.py` exposes `--vad-min-silence-ms`. The guard no longer
+  assumes VAD is the culprit: coverage is checked whatever the first pass used, because
+  the ablation in D16 disproved that assumption.
 - **Cache identity covers how the audio is decoded.** `asr_params` (settings identity
   plus parameter version) and `engines` (installed faster-whisper / openai-whisper
   versions) join the Douyin cache key, and `CACHE_SCHEMA_VERSION` moves to 3. Changing
