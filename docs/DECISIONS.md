@@ -422,6 +422,30 @@ Unable to resolve action `astral-sh/setup-uv@v10`, unable to find version `v10`
 
 ---
 
+## D17. 缓存身份必须包含转写参数与引擎版本
+
+**决策**：抖音缓存身份在 schema / platform / source / 期望视频 ID / 模型 / 语言 / 下载方式 / 画质 / 水印之外，
+再加入 `asr_params`（来自 `TranscriptionSettings.identity()`：参数版本 + 模型 + beam + VAD +
+`condition_on_previous_text` + 覆盖率开关与阈值）和 `engines`（当前环境里 faster-whisper / openai-whisper 的版本）。
+`CACHE_SCHEMA_VERSION` 由 2 升到 3。
+
+**背景**：v2 的身份只覆盖"取流与模型选择"，不覆盖"怎么解码"，于是有两类静默错误：
+把 `vad_filter` 从 `True` 改成 `False`（正是 D16 的修复方向）之后，旧缓存仍会被判定为有效并复用，
+用户拿到的还是丢字版本；升级 faster-whisper 补丁版本会改变识别结果，但缓存键不变。
+
+**取舍**：引擎版本进键意味着"升级依赖后第一次运行必然重新转写"，
+牺牲一次缓存命中，换取"缓存内容与产生它的代码一致"。参数身份由 `TranscriptionSettings.identity()` 统一导出，
+不把默认值抄在缓存层——否则调用点的默认值与缓存键会各自漂移。
+
+**验证方式**：`test_core.py::test_douyin_cache_key_tracks_asr_parameters_and_engine_versions`
+断言 beam、VAD 与引擎版本变化都会改变缓存键；
+`::test_douyin_cache_rejects_legacy_identity_without_asr_parameters` 断言 v2 信封不会被 v3 请求复用。
+
+**重新评估触发条件**：如果参数身份继续膨胀（例如引入标点模型版本、提示词 hash），
+应改为对整份 `TranscriptionSettings` 求稳定哈希，而不是继续逐字段展开。
+
+---
+
 ## 决策索引
 
 | 编号 | 主题 | 是否可推翻 |
@@ -442,3 +466,4 @@ Unable to resolve action `astral-sh/setup-uv@v10`, unable to find version `v10`
 | D14 | 三宿主 interface 清单一致 | 可（若宿主改读 SKILL.md） |
 | D15 | CI action 按各自 tag 策略引用 | 可（若改用 commit SHA） |
 | D16 | VAD 丢字必须检测并局部补转 | 可（若上游修掉 VAD 误判） |
+| D17 | 缓存身份含转写参数与引擎版本 | 可（若改为整体哈希） |

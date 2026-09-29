@@ -252,6 +252,46 @@ def test_douyin_cache_reuses_only_matching_identity(tmp_path):
     assert douyin.load_cached_result(str(cache_path), changed_identity) is None  # 参数变化不得串用旧 ASR。
 
 
+def test_douyin_cache_key_tracks_asr_parameters_and_engine_versions():
+    douyin = load_script("douyin_extract")
+    speech_to_text = load_script("speech_to_text")
+    url = "https://v.douyin.com/example/"
+
+    default_identity = douyin.build_asr_identity(speech_to_text.TranscriptionSettings())
+    stricter_identity = douyin.build_asr_identity(speech_to_text.TranscriptionSettings(beam_size=5))
+    no_vad_identity = douyin.build_asr_identity(speech_to_text.TranscriptionSettings(vad_filter=False))
+
+    assert default_identity["params_version"] == speech_to_text.ASR_PARAMS_VERSION  # 参数版本随默认值变化
+    assert default_identity["engines"] == speech_to_text.installed_engine_versions()  # 引擎版本进身份
+    assert default_identity != stricter_identity  # beam 变化必须换缓存目录
+    assert default_identity != no_vad_identity  # VAD 开关变化必须换缓存目录
+
+    default_key = douyin.build_cache_key(url, "small", "zh", "auto", "1080p", False, default_identity)
+    stricter_key = douyin.build_cache_key(url, "small", "zh", "auto", "1080p", False, stricter_identity)
+    bumped_engine = {**default_identity, "engines": {"faster-whisper": "99.0.0"}}
+    bumped_key = douyin.build_cache_key(url, "small", "zh", "auto", "1080p", False, bumped_engine)
+
+    assert default_key != stricter_key  # 参数不同即缓存不同
+    assert default_key != bumped_key  # 引擎升级即缓存失效，不会复用旧转写
+
+
+def test_douyin_cache_rejects_legacy_identity_without_asr_parameters(tmp_path):
+    douyin = load_script("douyin_extract")
+    speech_to_text = load_script("speech_to_text")
+    asr_identity = douyin.build_asr_identity(speech_to_text.TranscriptionSettings())
+    identity = douyin.build_cache_identity("7654321098765432100", "small", "zh", "auto", "1080p", False, asr_identity)
+    legacy_identity = {key: value for key, value in identity.items() if key != "asr_params"}  # 模拟 v2 信封
+    legacy_identity["schema"] = 2
+    envelope = {
+        "cache_identity": {**legacy_identity, "video_id": "7654321098765432100"},
+        "result": {"video_id": "7654321098765432100", "metadata": {"video_id": "7654321098765432100"}, "segments": []},
+    }
+    cache_path = tmp_path / "result.json"
+    cache_path.write_text(json.dumps(envelope, ensure_ascii=False), encoding="utf-8")
+
+    assert douyin.load_cached_result(str(cache_path), identity) is None  # v2 缓存不得当成 v3 复用
+
+
 def test_douyin_cache_rejects_mismatched_real_video_id(tmp_path):
     douyin = load_script("douyin_extract")
     cache_path = tmp_path / "result.json"

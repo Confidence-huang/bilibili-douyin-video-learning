@@ -27,14 +27,18 @@ from pathlib import Path
 from datetime import datetime
 
 import douyin_ssr
-from speech_to_text import TranscriptionSettings, transcribe_audio_file          # 统一使用 faster-whisper 优先的本机 ASR 入口
+from speech_to_text import (                                                     # 统一使用 faster-whisper 优先的本机 ASR 入口
+    TranscriptionSettings,
+    installed_engine_versions,
+    transcribe_audio_file,
+)
 from runtime_output import log, sanitize_diagnostics, sanitize_text             # 进度和结构化错误共用脱敏边界。
 from file_output import write_json_atomically, write_text_atomically             # 缓存和最终 Markdown 只原子发布完整文件。
 from media_tools import find_ffmpeg                                              # 所有平台共用同一 FFmpeg 解析规则。
 from prompt_templates import load_template                                       # 笔记骨架来自可评审的 prompts/*.md。
 
 
-CACHE_SCHEMA_VERSION = 2                                                         # v2 缓存带参数身份和真实视频 ID 双重校验。
+CACHE_SCHEMA_VERSION = 3                                                         # v3 把转写参数与引擎版本一起纳入身份。
 
 
 # --- Helpers ---
@@ -96,6 +100,7 @@ def build_cache_identity(
     download_method: str,
     ratio: str,
     watermark: bool,
+    asr_params: dict | None = None,
 ) -> dict:
     return {
         "schema": CACHE_SCHEMA_VERSION,                         # 旧格式缓存自动失效，不猜测缺失字段。
@@ -107,6 +112,15 @@ def build_cache_identity(
         "download_method": download_method,
         "ratio": ratio,
         "watermark": watermark,
+        "asr_params": asr_params or {},                          # VAD/beam/覆盖率开关与引擎版本都会改变识别结果。
+    }
+
+
+# --- 汇总一次转写真正会影响结果的全部参数 ---
+def build_asr_identity(settings: TranscriptionSettings) -> dict:
+    return {
+        **settings.identity(),                                  # 参数版本 + 模型 + VAD + 覆盖率开关
+        "engines": installed_engine_versions(),                  # 引擎补丁升级同样要放弃旧缓存。
     }
 
 
@@ -118,8 +132,9 @@ def build_cache_key(
     download_method: str,
     ratio: str,
     watermark: bool,
+    asr_params: dict | None = None,
 ) -> str:
-    identity = build_cache_identity(source_text, model_size, language, download_method, ratio, watermark)
+    identity = build_cache_identity(source_text, model_size, language, download_method, ratio, watermark, asr_params)
     cache_input = json.dumps(identity, ensure_ascii=False, sort_keys=True)
     return hashlib.sha256(cache_input.encode("utf-8")).hexdigest()[:24]
 
@@ -473,8 +488,10 @@ def extract_douyin(
     active = settings or TranscriptionSettings(model_size=model_size, language=language)  # 转写参数统一由 settings 决定
 
     # Step 1: Use a stable non-identifying folder before the real video ID is known.
-    cache_identity = build_cache_identity(url, active.model_size, active.language, download_method, ratio, watermark)
-    cache_key = build_cache_key(url, active.model_size, active.language, download_method, ratio, watermark)
+    asr_identity = build_asr_identity(active)                                     # 转写参数与引擎版本一起进入缓存身份
+    cache_identity = build_cache_identity(url, active.model_size, active.language, download_method, ratio, watermark,
+                                          asr_identity)
+    cache_key = build_cache_key(url, active.model_size, active.language, download_method, ratio, watermark, asr_identity)
     work_dir = os.path.join(temp_dir, cache_key)                  # 分享文本不再直接出现在临时目录名中。
     os.makedirs(work_dir, exist_ok=True)
     cache_path = os.path.join(work_dir, "result.json")
