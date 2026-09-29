@@ -362,3 +362,81 @@ def test_real_douyin_caption_and_asr_fuse_without_losing_content():
         expected = set(significant("".join(item.get("text") or item.get("content") or ""
                                            for item in source)))
         assert not (expected - covered), f"真实素材融合后漏字: {sorted(expected - covered)}"
+
+
+# ============================ 冲突裁决表与复核清单（D35） ============================
+
+verify_transcript = load_script("verify_transcript")   # 本文件其余用例是函数内取用；这组用例需要模块级句柄
+
+# --- 逐位字符混淆：等长表项必须能被拆成位对位比较（difflib 的 opcode 是字符级）---
+def test_character_confusions_split_equal_length_entries():
+    confusions = verify_transcript.character_confusions({"雪包": "血包", "赠养": "赡养", "长短不一": "短"})
+
+    assert confusions["雪"] == "血" and confusions["赠"] == "赡"
+    assert "包" not in confusions            # 相同的位不产生"混淆"
+    assert "长" not in confusions            # 长度不等的表项不参与逐位比较
+
+
+# --- 裁决方向：主源写错 → 采信次源；次源写错 → 维持主源；都不命中 → 维持主源 ---
+def test_prefer_side_both_directions():
+    table = {"赠养": "赡养", "雪包": "血包"}
+
+    chosen, primary_wrong, secondary_wrong = verify_transcript.prefer_side("赠", "赡", table)
+    assert chosen == "secondary" and primary_wrong == "赠"
+
+    chosen, primary_wrong, secondary_wrong = verify_transcript.prefer_side("血", "雪", table)
+    assert chosen == "primary" and secondary_wrong == "雪"
+
+    chosen, _, _ = verify_transcript.prefer_side("甲", "乙", table)
+    assert chosen == "primary"
+
+
+# --- 冲突规模：replace 数"有几位不同"，长度不同取较长者 ---
+def test_conflict_size_counts_differing_positions():
+    assert verify_transcript._conflict_size("血包", "雪包") == 1
+    assert verify_transcript._conflict_size("从小到大", "创造了") == 4
+    assert verify_transcript._conflict_size("", "补上的三个字") == 6   # 长度不同时取较长者
+
+
+# --- 清单只列实质冲突：多字差异或单字实词；纯虚词差异不算 ---
+def test_span_substantive_ignores_function_words():
+    assert verify_transcript._span_is_substantive({"primary_text": "血", "secondary_text": "雪"}) is True
+    assert verify_transcript._span_is_substantive({"primary_text": "从小到大", "secondary_text": "创造了"}) is True
+    assert verify_transcript._span_is_substantive({"primary_text": "的", "secondary_text": "得"}) is False
+
+
+# --- 融合报告必须给出排序后的短清单，同时保留全量 spans（不隐藏冲突）---
+def test_fusion_reports_ranked_short_list():
+    primary = [{"start": 0.0, "end": 2.0, "text": "中国男性是最好的血包"},
+               {"start": 2.0, "end": 4.0, "text": "他觉得很欣慰"}]
+    secondary = [{"start": 0.0, "end": 2.0, "text": "中国男性是最好的雪包"},
+                 {"start": 2.0, "end": 4.0, "text": "他觉得很欣蔚"}]
+
+    report = verify_transcript.fuse_transcripts(primary, secondary)
+
+    assert report["needs_review_total"] >= 1
+    assert report["substantive_conflicts"] >= 1
+    assert len(report["needs_review_top"]) <= 30
+    assert report["spans"]                       # 全量差异清单仍然在，短清单只是"先看哪些"
+    assert all(item["difference_chars"] >= 1 for item in report["needs_review_top"])
+
+
+# --- 裁决表命中要留痕：说明为什么改判/为什么维持 ---
+def test_preference_hits_are_recorded():
+    primary = [{"start": 0.0, "end": 2.0, "text": "赠养家人"}]      # 主源（OCR）把"赡"认成"赠"
+    secondary = [{"start": 0.0, "end": 2.0, "text": "赡养家人"}]     # 次源（ASR）是对的
+
+    report = verify_transcript.fuse_transcripts(primary, secondary, preferences={"赠养": "赡养"})
+
+
+    assert report["preference_hits"] and report["preference_hits"][0]["action"] == "chose_secondary"
+    assert report["preference_hits"][0]["wrong_form"] == "赠"
+
+
+# --- 随机仓库里自带的裁决表必须可解析（否则融合会静默失去第三判据）---
+def test_shipped_conflict_preferences_are_usable():
+    table = verify_transcript.load_conflict_preferences()
+
+    assert table, "references/conflict-preferences.txt 不应为空"
+    confusions = verify_transcript.character_confusions(table)
+    assert confusions.get("雪") == "血" and confusions.get("赠") == "赡"
