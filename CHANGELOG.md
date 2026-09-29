@@ -2,6 +2,30 @@
 
 All notable public changes are recorded here.
 
+## 1.12.0 - 2026-09-29
+
+- **The domain lexicon now only holds entries with a real error behind them.** The ten
+  "common misspellings" that were added from intuition (认知, 情绪价值, 底层逻辑, ...) are gone:
+  the lexicon measured harmful as a whole (0.0433 to 0.0751, missing characters 11 to 56, D26),
+  so unverified words only add noise. Ten entries remain, each traceable to a concrete case
+  (血包/雪包, 供血/工学, 经济价值/经营价值, ...), and the file states the rule: to add a word,
+  say which video and what it misheard. See D36.
+- **Model revision is part of the cache identity.** The key only knew the model *name*, so the
+  same `large-v3` with different weights would reuse a stale cache. `identity()` now carries a
+  fingerprint built from the weight file's size and mtime - metadata only, no content read.
+- **ASR engine diagnostics carry the same `step` key** as the coverage and refine diagnostics
+  (`step: "asr_engine"`, with `engine` kept for existing callers).
+- **Scripts nobody references are now visible.** `tools/validate_repository.py` reports, without
+  failing, the scripts under `scripts/` that no in-repo file mentions - matching on the module
+  name, since `from file_output import ...` carries no `.py` suffix. It currently lists
+  `bilibili_deep_archive.py` (called by the plugin, which CI cannot see), `export_anki.py` and
+  `vault_synthesize.py`. Deliberately non-fatal: external callers are invisible to CI and a hard
+  failure would be a false alarm.
+- Two self-inflicted defects caught by the tests while landing this, recorded because the lesson
+  matters: `speech_to_text.py` used `os.environ` while only importing `pathlib` (nine failures),
+  and the new validator function was appended after the `if __name__ == "__main__":` block.
+- Tests: **311 passing** offline cases.
+
 ## 1.11.0 - 2026-09-29
 
 - **Fusion can correct, not just annotate.** Fusion used to keep the primary wording on every

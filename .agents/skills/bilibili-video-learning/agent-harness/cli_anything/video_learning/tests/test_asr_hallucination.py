@@ -118,3 +118,31 @@ def test_hallucination_settings_enter_cache_identity():
 
     assert base.identity() != off.identity() != strict.identity()
     assert base.hallucination_gate is True and base.hallucination_compression_ratio == 2.4
+
+
+# ============================ 诊断键统一与模型指纹（D36） ============================
+
+# --- 所有 ASR 诊断都要有统一的 step 键，调用方不必再猜 ---
+def test_asr_diagnostic_exposes_unified_step_key():
+    diagnostic = speech_to_text._new_asr_diagnostic("faster-whisper", True, "ok", device="cuda")
+
+    assert diagnostic["step"] == "asr_engine" and diagnostic["engine"] == "faster-whisper"
+    assert diagnostic["device"] == "cuda"
+
+
+# --- 模型指纹：找不到权重要如实返回 None，不能编一个值出来 ---
+def test_model_fingerprint_is_honest_when_model_is_absent():
+    speech_to_text.model_fingerprint.cache_clear()
+
+    assert speech_to_text.model_fingerprint("no-such-model-size-xyz") is None
+
+
+# --- 指纹变化必须改变缓存身份（同一模型名换 revision 后不能复用旧缓存）---
+def test_model_fingerprint_enters_cache_identity(monkeypatch):
+    settings = speech_to_text.TranscriptionSettings()
+    monkeypatch.setattr(speech_to_text, "model_fingerprint", lambda size: "model.bin:100:200")
+    first = settings.identity()
+    monkeypatch.setattr(speech_to_text, "model_fingerprint", lambda size: "model.bin:100:999")
+
+    assert first["model_fingerprint"] == "model.bin:100:200"
+    assert settings.identity()["model_fingerprint"] == "model.bin:100:999"

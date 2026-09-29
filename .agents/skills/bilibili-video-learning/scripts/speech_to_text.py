@@ -10,6 +10,7 @@ r"""
 """
 from __future__ import annotations                                               # 允许在返回结构里使用现代类型标注
 
+import os                                                                        # 模型指纹需要读 HF_HOME 与用户缓存目录
 import sys                                                                       # 输出解释器路径，帮助确认是否来自 uv venv
 import traceback                                                                 # fallback 失败时保留可诊断的错误栈
 from pathlib import Path                                                         # 统一处理 Windows 音频路径
@@ -18,6 +19,7 @@ from typing import NamedTuple                                                   
 import asr_coverage                                                              # 覆盖率校验与局部补转（不依赖任何模型）
 import asr_hallucination                                                         # 补转结果的幻觉门与标注（D34）
 import asr_refine                                                                # 可疑区间的定向二次解码（D27）
+import functools                                                                 # 模型指纹按尺寸缓存，避免每次 identity() 都扫盘
 import asr_lexicon                                                              # 领域词表（见 D26）
 import cuda_runtime                                                              # CUDA 运行时库预加载（见 D23）
 from runtime_output import log                                                   # ASR 进度写 stderr，JSON 调用方只读 stdout。
@@ -50,7 +52,9 @@ class TranscriptionSettings(NamedTuple):
     hallucination_compression_ratio: float = 2.4                                 # 压缩比阈值：更高视为复读/幻觉
 
     def identity(self) -> dict:
-        return {"params_version": ASR_PARAMS_VERSION, **self._asdict()}           # 缓存键只认这份字典，不认调用点默认值
+        return {"params_version": ASR_PARAMS_VERSION,
+                "model_fingerprint": model_fingerprint(self.model_size),          # 权重换 revision 也要失效缓存（D36）
+                **self._asdict()}                                                 # 缓存键只认这份字典，不认调用点默认值
 
 
 # --- 转写档位：按"实测 CER / 覆盖率 / 是否要词级时间轴"打包（数字见 docs/DECISIONS.md D26） ---
@@ -73,6 +77,23 @@ def apply_profile(settings: "TranscriptionSettings", profile: str) -> "Transcrip
     return settings._replace(profile=profile, **overrides)
 
 
+# --- 模型权重指纹（大小 + mtime）：同一个模型名换 revision 后必须失效缓存（D36）---
+@functools.lru_cache(maxsize=8)
+def model_fingerprint(model_size: str) -> str | None:
+    candidates = []
+    for root in (os.environ.get("HF_HOME"), os.path.join(os.path.expanduser("~"), ".cache", "huggingface")):
+        if not root:
+            continue
+        candidates.extend(Path(root).glob(f"hub/models--*faster-whisper-{model_size}"))
+        candidates.extend(Path(root).glob(f"models--*faster-whisper-{model_size}"))
+    for directory in candidates:
+        weights = sorted(directory.rglob("*.bin")) or sorted(directory.rglob("*.safetensors"))
+        if weights:
+            stat = weights[0].stat()
+            return f"{weights[0].name}:{stat.st_size}:{int(stat.st_mtime)}"      # 不读内容，只看身份相关元数据
+    return None                                                                  # 找不到就如实不记，而不是编一个值
+
+
 # --- 读取当前环境里的 ASR 引擎版本 ---
 def installed_engine_versions() -> dict:
     versions = {}                                                                # 未安装的引擎直接不出现在身份里，保持确定性
@@ -92,7 +113,8 @@ def installed_engine_versions() -> dict:
 # --- 记录一次 ASR 尝试 ---
 def _new_asr_diagnostic(engine: str, ok: bool, message: str, **extra_data) -> dict:
     return {
-        "engine": engine,                                                         # 标明是 faster-whisper 还是 openai-whisper
+        "step": "asr_engine",                                                     # 与覆盖率/重解诊断统一：调用方只需读一个键（D36）
+        "engine": engine,                                                         # 保留 engine 兼容既有调用方
         "ok": ok,                                                                 # 让调用方能直接判断本次尝试是否成功
         "message": message,                                                       # 人类可读的成功/失败原因
         **extra_data,                                                             # 附带 device、compute_type、异常栈等诊断字段

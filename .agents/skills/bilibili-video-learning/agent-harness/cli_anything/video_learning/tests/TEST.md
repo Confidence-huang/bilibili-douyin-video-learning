@@ -101,6 +101,12 @@
 - 无音轨：用 ffmpeg 现场生成有/无音轨真实文件双向验证；`extract_audio` 抛 `NoAudioTrackError`；
   通用入口返回 27；退出码互不重复。
 
+### 收尾项（诊断键 / 模型指纹 / 词表）
+
+- 所有 ASR 诊断都带统一的 `step` 键（`asr_engine`），并保留 `engine` 兼容。
+- 模型指纹：找不到权重要如实返回 `None`；指纹变化必须改变缓存身份。
+- 词表文件只保留"能对应真实错例"的条目。
+
 ### 融合裁决与复核清单
 
 - 逐位字符混淆：等长表项拆成位对位（`赠→赡`、`雪→血`），长度不等退回整串包含。
@@ -183,7 +189,7 @@
 - Linux CLI Python：`${XDG_DATA_HOME:-$HOME/.local/share}/bilibili-video-learning/runtime/bin/python`
 - Windows CLI Python：`<skill-root>\.venv-gpu\Scripts\python.exe`
 - 安装方式：平台安装器调用 `uv pip install --python <CLI-Python> --no-deps -e <skill-root>/agent-harness`
-- 安装入口：`cli-anything-video-learning` 1.11.0
+- 安装入口：`cli-anything-video-learning` 1.12.0
 - 运行约束：`CLI_ANYTHING_FORCE_INSTALLED=1`，测试不得回退到源码模块
 
 执行命令：
@@ -206,7 +212,7 @@ python -m pytest cli_anything/video_learning/tests -q
   退出码契约（`test_exit_codes.py`，含抖音 `main()` 的 20/24 码与 JSON 一致性、B站异常分支保留 2 号兜底）；
   CUDA 不可用时的降级（`test_cross_platform.py`，覆盖惰性解码失败、构造期失败、显式 CUDA 不降级、兜底失败时保留根因）。
 - 轻量 CI 环境跳过唯一要求完整 ASR 运行时的 doctor 测试；默认套件不联网、不下载媒体、不读取浏览器 Cookie，也不启动模型推理。
-- 隔离 Linux 完整安装验收通过：依赖一致、CLI 1.11.0、本地合成 MP4 转 16 kHz 单声道 WAV、doctor 找到外置 runtime、yt-dlp、imageio-ffmpeg、faster-whisper 和 CTranslate2。
+- 隔离 Linux 完整安装验收通过：依赖一致、CLI 1.12.0、本地合成 MP4 转 16 kHz 单声道 WAV、doctor 找到外置 runtime、yt-dlp、imageio-ffmpeg、faster-whisper 和 CTranslate2。
 - Skill Creator 校验通过；Skill Lifecycle Manager 的 Static、Runtime、Behavior 三层验证均通过。
 - Windows CUDA 完整安装与真实 GPU ASR 留给 Windows GitHub Actions 和显式授权的真实硬件 smoke；本地 Linux 验收不冒充 Windows GPU 证据。
 - 1.5.0 的真实端到端复核（不进入离线套件，证据留在本轮记录中）：抖音 259.77 秒音频与 B站 30.6 秒视频
