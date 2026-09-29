@@ -320,3 +320,63 @@ def test_blank_model_falls_back_to_auto():
 
     assert speech.resolve_model_size("", cuda_available=True)[0] == "large"
     assert speech.resolve_model_size(None, cuda_available=False)[0] == "small"
+
+
+# ============================ 跨金标回归与标点可选后端（D44） ============================
+
+def load_script_module(name):
+    import importlib.util
+    from pathlib import Path as _Path
+    scripts = _Path(__file__).resolve().parents[4] / "scripts"
+    spec = importlib.util.spec_from_file_location(f"video_learning_test_{name}", scripts / f"{name}.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+# --- 用例说明解析：支持"金标只写文件名"（默认在 eval/gold/ 下找）---
+def test_benchmark_case_parsing():
+    benchmark = load_script_module("run_benchmark")
+
+    case = benchmark.parse_case("bili=/tmp/x.json:bilibili-BV1ntah6TEe9.json")
+
+    assert case["case"] == "bili" and case["gold"].name.endswith(".json")
+    assert case["gold"].parent.name == "gold"          # 相对文件名被解析到 eval/gold/
+
+
+# --- 用例说明写错时给出明确错误，而不是静默跳过 ---
+def test_benchmark_case_parsing_rejects_bad_spec():
+    benchmark = load_script_module("run_benchmark")
+
+    import pytest
+    with pytest.raises(ValueError, match="名称=产出"):
+        benchmark.parse_case("没有等号也没有冒号")
+
+
+# --- 表格渲染必须把列名与 None 都如实输出 ---
+def test_benchmark_table_renders_none_honestly():
+    benchmark = load_script_module("run_benchmark")
+
+    table = benchmark.render_table([{"case": "a", "cer": 0.01, "coverage": None}])
+
+    assert "| case | cer |" in table and "None" in table
+
+
+# --- 取键要防御式：字段名跨版本变过，不能猜死一个 ---
+def test_benchmark_first_key_helper():
+    benchmark = load_script_module("run_benchmark")
+
+    assert benchmark._first({"rate": 0.0, "characters_per_minute": 1.5}, "characters_per_minute", "rate") == 1.5
+    assert benchmark._first({"rate": 0.0}, "characters_per_minute", "rate") == 0.0   # 0 也是有效值
+    assert benchmark._first({}, "rate") is None
+
+
+# --- 标点可选后端：CI 里没装 → 必须优雅降级成规则法，而不是报错 ---
+def test_punctuation_optional_backend_degrades():
+    punctuate = load_script_module("punctuate")
+
+    assert punctuate.available() is False                     # CI 不装可选依赖
+    text, mode = punctuate.restore("你好世界", segments=[{"start": 0.0, "end": 1.0, "text": "你好"},
+                                                         {"start": 2.0, "end": 3.0, "text": "世界"}])
+
+    assert mode == "rules" and "。" in text                   # 规则法仍然给出标点

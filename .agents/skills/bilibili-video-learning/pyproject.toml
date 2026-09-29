@@ -1,6 +1,6 @@
 [project]
 name = "bilibili-video-learning"
-version = "1.19.0"
+version = "1.20.0"
 requires-python = ">=3.12"
 
 # Version floors are not arbitrary. Each `>=` below closes a known advisory or a
@@ -28,6 +28,8 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# 标点恢复模型（可选）：装上并显式开启后才会用到，缺失时自动退回规则法（D44）
+punctuation = ["deepmultilingualpunctuation>=1.0.1"]
 # CPU-only ASR. Installs the CTranslate2 backend without any NVIDIA runtime wheels,
 # so a Linux or GPU-less Windows user is never asked to download multi-GB CUDA packages.
 asr = [
