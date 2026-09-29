@@ -34,7 +34,8 @@ import eval_asr  # 复用同一套指标，绝不重写第二份实现
 
 
 GOLD_DIR = SCRIPT_DIR.parent / "eval" / "gold"
-COLUMNS = ("case", "cer", "sub", "del", "ins", "coverage", "hallucination", "timeline_median", "punct_f1")
+COLUMNS = ("case", "cer", "sub", "del", "ins", "coverage", "hallucination", "timeline_median", "punct_f1",
+           "norm")
 
 
 # --- 解析 `名称=产出:金标`，金标允许只写文件名（默认在 eval/gold/ 下找）---
@@ -55,6 +56,13 @@ def _first(mapping: Dict[str, Any], *keys: str):
         if isinstance(mapping, dict) and mapping.get(key) is not None:
             return mapping[key]
     return None
+
+
+def _normalization_label(normalization: Dict[str, Any]) -> str:
+    """把归一模式压成一个短标签：`t2s:opencc+n` / `t2s:fallback+n`。"""
+    traditional = str(normalization.get("traditional_to_simplified", "?"))
+    numerals = "n" if normalization.get("numerals") else "-"
+    return f"t2s:{traditional}+{numerals}"
 
 
 def _timeline_median(timeline: Any):
@@ -114,6 +122,8 @@ def evaluate_case(case: Dict[str, Any]) -> Dict[str, Any]:
                           is not None else _search_number(report.get("hallucination"), ("minute", "rate")),
         "timeline_median": _timeline_median(timeline),
         "punct_f1": (report.get("punctuation") or {}).get("f1"),
+        # 归一模式决定数字：OpenCC 缺失时繁简归一降级，CER 会不同（所以必须与 CER 并排显示）
+        "norm": _normalization_label(report.get("normalization") or {}),
     }
 
 
