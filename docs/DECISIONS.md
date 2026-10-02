@@ -1581,6 +1581,26 @@ run_benchmark.py --case "bili1-large=<fixtures>/bili1_large.json:bilibili-BV1nta
 
 ---
 
+## D52. 历史进 CI 工件（不改仓库），趋势表由数据生成
+
+**决策一：CI 每跑一次就把四例数字追加到 `$RUNNER_TEMP/benchmark-history.jsonl` 并上传为 artifact。**
+之前 `--record-history` 只在本地可用，而本地不会为每次改动都记录——于是"跨版本趋势"依然无处可查。
+放进 CI 工件有三个好处：**每 PR 都有记录**、**不改仓库**（评测默认只读的原则不变）、
+需要时下载 artifact 即可 `--history-report`。
+
+**决策二：`run_benchmark.py --history-report <file.jsonl>` 生成趋势表。**
+按 `用例 × 归一模式` 分组，给出 `runs / first_cer / last_cer / delta / 首末时间`。
+用**合成历史**测试（两次测量 0.1111 → 0.1050 → delta −0.0061），因为仓库里的真实历史还没攒够——
+**空历史时给出可执行提示**（"先跑 `--record-history` 记录几次"），而不是打印一张空表。
+
+**为什么不把历史文件放进仓库**：它是"测量台账"，会随每次 CI 变动；放进仓库既会制造无意义提交，
+也会让"评测只读"这条原则破功。工件 + 按需下载是更合适的形态。
+
+**重新评估触发条件**：如果团队开始按版本回溯趋势，应加"发版时把 artifact 汇总追加到
+`docs/` 下的一张表"（届时它是**发布产物**而不是每次 CI 的噪声）。
+
+---
+
 ## 决策索引
 
 | 编号 | 主题 | 是否可推翻 |
@@ -1636,3 +1656,4 @@ run_benchmark.py --case "bili1-large=<fixtures>/bili1_large.json:bilibili-BV1nta
 | D49 | 归一结果写进产出诊断；基线改善可落库 | 可（归一改为联网下载时重写 reason） |
 | D50 | 笔记显示处理链；数字标注来源 | 可（处理链变长则折叠） |
 | D51 | doctor 报归一依赖/默认模型；基线历史可追加 | 可（历史增长则加报表命令） |
+| D52 | 历史进 CI 工件；趋势表由数据生成 | 可（发版汇总时改存 docs） |
