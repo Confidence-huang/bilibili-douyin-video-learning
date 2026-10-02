@@ -133,3 +133,35 @@ def test_processing_section_ignores_unknown_steps():
     section = review_section.render_processing_section({"diagnostics": [{"step": "内部步骤", "ok": True}]})
 
     assert section == ""
+
+
+# --- 资产盘点要报出"归一依赖是否可用"和"默认模型"（都来自真实探测/源码，D51）---
+def test_assets_report_normalisation_and_default_model():
+    assets = skill_assets.inspect_skill_assets(SKILL_ROOT)
+
+    assert assets["opencc_available"] in (True, False)
+    assert assets["simplification_mode"] == ("opencc" if assets["opencc_available"] else "fallback")
+    assert assets["default_model"] in ("auto", "small", "large")               # 默认必须能被读出来
+
+
+# --- 历史记录只追加、不改写（每次测量一行，便于日后看趋势）---
+def test_benchmark_records_history_jsonl(tmp_path):
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("video_learning_test_history", SCRIPTS_DIR / "run_benchmark.py")
+    benchmark = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(benchmark)
+    gold = SKILL_ROOT / "eval/gold/bilibili-BV1ntah6TEe9.json"
+    hypothesis = SKILL_ROOT / "agent-harness/cli_anything/video_learning/tests/fixtures/bili1_large.json"
+    history = tmp_path / "history.jsonl"
+
+    first = benchmark.main(["--case", f"bili1-large={hypothesis}:{gold}", "--record-history", str(history)])
+    second = benchmark.main(["--case", f"bili1-large={hypothesis}:{gold}", "--record-history", str(history)])
+
+    lines = history.read_text(encoding="utf-8").strip().splitlines()
+    assert first == 0 and second == 0
+    assert len(lines) == 2                                                     # 追加而不是覆盖
+    import json as _json
+    entry = _json.loads(lines[0])
+    assert entry["case"] == "bili1-large" and entry["norm"] and entry["cer"] is not None
+    assert entry["timestamp"].endswith("Z")

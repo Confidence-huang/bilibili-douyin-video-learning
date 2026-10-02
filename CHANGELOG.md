@@ -2,6 +2,22 @@
 
 All notable public changes are recorded here.
 
+## 1.26.0 - 2026-09-29
+
+- **`doctor assets` now answers "which normalisation will this machine use".** It reports whether
+  OpenCC is importable in the CLI's own runtime, derives the resulting mode from that, and reads the
+  default model out of the entry scripts. So "opencc or fallback" and "will the default pick large"
+  no longer require reading source or running a transcription. See D51.
+- **Baseline history can be recorded.** `run_benchmark.py --record-history <file.jsonl>` appends one
+  line per case with timestamp, norm mode, CER and coverage - append-only, never rewriting past
+  measurements. The provenance table in docs/ACCEPTANCE.md could only be written by hand while the
+  baseline file kept a single current value; once a case has been measured on more than one release,
+  a trend can be generated from data instead of recalled. It is not the default, for the same reason
+  `--write-baseline` is not: measurement stays read-only unless asked otherwise.
+- A small mistake worth noting: the test for this used a helper defined in a different test file, so
+  it failed with a NameError. Test helpers have to be imported explicitly rather than assumed.
+- Tests: **441 passing** offline cases.
+
 ## 1.25.0 - 2026-09-29
 
 - **Notes now say what was done to the transcript.** Whether normalisation actually ran, whether the
