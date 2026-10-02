@@ -570,3 +570,33 @@ def test_history_regressions_are_per_case_and_mode():
     problems = benchmark.history_regressions(entries)
 
     assert len(problems) == 1 and "opencc" in problems[0]
+
+
+# ============================ 发版汇总的幂等与版本校验（D55） ============================
+
+# --- 版本号必须形如 1.29.0，否则拒绝（否则趋势表无法排序比较）---
+def test_release_summary_rejects_non_version(tmp_path, capsys):
+    benchmark = load_script_module("run_benchmark")
+    history = tmp_path / "h.jsonl"
+    history.write_text('{"case": "a", "norm": "m", "cer": 0.01, "timestamp": "T"}\n', encoding="utf-8")
+
+    code = benchmark.main(["--append-release-summary", str(history), "--release-version", "latest"])
+
+    assert code == 2 and "1.29.0" in capsys.readouterr().out
+
+
+# --- 同 版本×用例×模式 重复执行不写第二行（幂等）---
+def test_release_summary_is_idempotent(tmp_path, capsys):
+    benchmark = load_script_module("run_benchmark")
+    history = tmp_path / "h.jsonl"
+    history.write_text('{"case": "a", "norm": "m", "cer": 0.01, "timestamp": "T"}\n', encoding="utf-8")
+    target = tmp_path / "target.jsonl"
+
+    first = benchmark.existing_summary_keys(target)
+    rows = benchmark.release_summary_rows([{"case": "a", "norm": "m", "cer": 0.01, "timestamp": "T"}], "1.29.0")
+
+    assert len(rows) == 1
+    assert first == set()                                                # 首次没有已存在的键
+    target.write_text("| 版本 | 用例 | 归一模式 | CER | 覆盖率 | 记录时间 |\n|---|---|---|---|---|---|\n" + rows[0] + "\n",
+                      encoding="utf-8")
+    assert ("1.29.0", "a", "m") in benchmark.existing_summary_keys(target)     # 第二次能识别出来（v 前缀可省）

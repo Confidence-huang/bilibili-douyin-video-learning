@@ -2,6 +2,26 @@
 
 All notable public changes are recorded here.
 
+## 1.30.0 - 2026-09-29
+
+- **The trend gate runs in CI, against history that accumulates.** An artifact per run starts from
+  nothing every time, so a trend had nothing to compare against. Both jobs now restore and save
+  `.benchmark-history.jsonl` through actions/cache, append this run's four cases, then run
+  --history-report --fail-on-regression. The file lives in the working tree and the cache only - it
+  is gitignored - and a first run with a single measurement has no trend, so it passes naturally.
+  See D55.
+- **Release summaries are idempotent and validate the version.** --append-release-summary now
+  requires a version shaped like 1.29.0, since the trend table has to be sortable, and it skips rows
+  already present for the same version, case and mode. The first version of that check compared
+  against a `v`-prefixed key while writing rows without the prefix, so it could never match - the
+  idempotency was not idempotent. Both sides are normalised now.
+- **`doctor assets --verbose`** keeps the default output to counts and switches, and expands the
+  template list and latest benchmark only when asked.
+- Another instance of a recurring mistake: VERSION_PATTERN used `re` while the `import re` insertion
+  missed its anchor, and 22 tests failed immediately. Same lesson as before - a new name has to be
+  checked as available in that file.
+- Tests: **453 passing** offline cases.
+
 ## 1.29.0 - 2026-09-29
 
 - **Trends can now act as a gate.** A single baseline value only catches a regression against one

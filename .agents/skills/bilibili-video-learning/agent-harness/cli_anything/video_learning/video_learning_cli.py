@@ -232,13 +232,16 @@ def doctor_status_command() -> None:
 
 
 @doctor_group.command("assets")
+@click.option("--verbose", is_flag=True, help="连同模板清单、最近基准等细节一起输出")
 @handle_error
-def doctor_assets_command() -> None:
-    """只报告 Skill 资产盘点（词表/裁决表/分块/模板），便于脚本化取值。"""
+def doctor_assets_command(verbose: bool) -> None:
+    """报告 Skill 资产盘点：默认只给计数与开关，--verbose 才展开细节（D55）。"""
     payload = inspect_runtime()
     from cli_anything.video_learning.core import skill_assets
     assets = skill_assets.inspect_skill_assets(payload["skill_root"])
-    emit_result(assets, "\n".join(f"{key}: {value}" for key, value in assets.items()))
+    detail_keys = ("prompt_templates", "latest_benchmark")
+    shown = assets if verbose else {key: value for key, value in assets.items() if key not in detail_keys}
+    emit_result(shown, "\n".join(f"{key}: {value}" for key, value in shown.items()))
 
 
 # --- 默认交互式入口 ---

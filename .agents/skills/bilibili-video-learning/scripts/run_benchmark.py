@@ -21,6 +21,7 @@ r"""
 from __future__ import annotations  # 允许在返回结构里使用现代类型标注
 
 import argparse  # 稳定命令行契约
+import re  # 版本号格式校验（v1.29.0 这类必须能排序比较）
 import json  # 结果与表格都能机读
 import sys  # 退出码
 import time  # 历史记录的时间戳
@@ -163,6 +164,25 @@ def render_table(rows: List[Dict[str, Any]]) -> str:
     return "\n".join(lines)
 
 
+VERSION_PATTERN = re.compile(r"^\d+\.\d+\.\d+$")          # 版本必须能被排序比较，别写 "latest" 这类字样
+
+
+def existing_summary_keys(target: Path) -> set:
+    """已写进趋势表的键 (版本, 用例, 模式)：让汇总**幂等**，重复执行不会写第二遍。
+
+    版本号归一化：表里可能写 `v1.29.0` 也可能写 `1.29.0`，两侧都去掉 `v` 再比较，
+    否则幂等检查永远不命中（这正是我第一版写错的地方）。
+    """
+    if not target.exists():
+        return set()
+    keys = set()
+    for line in target.read_text(encoding="utf-8").splitlines():
+        cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
+        if len(cells) == 6 and VERSION_PATTERN.match(cells[0].lstrip("v")) and cells[1]:
+            keys.add((cells[0].lstrip("v"), cells[1], cells[2]))
+    return keys
+
+
 # --- 发版汇总：从历史取每个 用例×模式 的最新值，追加成趋势表的一行（D53）---
 def release_summary_rows(entries: List[Dict[str, Any]], release: str) -> List[str]:
     latest: Dict[tuple, Dict[str, Any]] = {}
@@ -267,6 +287,10 @@ def main(argv: Optional[List[str]] = None) -> int:
         if not args.release_version:
             print(json.dumps({"error": "--append-release-summary 需要 --release-version"}, ensure_ascii=False))
             return 2
+        if not VERSION_PATTERN.match(args.release_version):
+            print(json.dumps({"error": f"--release-version 需要形如 1.29.0，收到 {args.release_version!r}"},
+                             ensure_ascii=False))
+            return 2
         entries = [json.loads(line) for line in history_path.read_text(encoding="utf-8").splitlines() if line.strip()]
         rows = release_summary_rows(entries, args.release_version)
         if not rows:
@@ -278,9 +302,18 @@ def main(argv: Optional[List[str]] = None) -> int:
                                    "`benchmark-history` artifact；命令 `run_benchmark.py --append-release-summary`）。\n\n"
                                    "| 版本 | 用例 | 归一模式 | CER | 覆盖率 | 记录时间 |\n|---|---|---|---|---|---|\n",
                                    encoding="utf-8")
+        already = existing_summary_keys(target_path)
+        fresh = []
+        for row in rows:
+            cells = [cell.strip() for cell in row.strip().strip("|").split("|")]
+            if (cells[0].lstrip("v"), cells[1], cells[2]) not in already:
+                fresh.append(row)
+        if not fresh:
+            print(f"（已存在 v{args.release_version} 的行，未重复写入）")
+            return 0
         with target_path.open("a", encoding="utf-8") as handle:
-            handle.write("\n".join(rows) + "\n")
-        print(f"APPENDED {len(rows)} row(s) -> {target_path}")
+            handle.write("\n".join(fresh) + "\n")
+        print(f"APPENDED {len(fresh)} row(s) -> {target_path}")
         return 0
     if args.history_report:
         history_path = Path(args.history_report)
