@@ -2,6 +2,27 @@
 
 All notable public changes are recorded here.
 
+## 1.29.0 - 2026-09-29
+
+- **Trends can now act as a gate.** A single baseline value only catches a regression against one
+  recorded number, while a trend catches the case where every release is slightly worse. With
+  `--history-report --fail-on-regression`, the latest measurement per case and mode is compared with
+  the one before it and anything worse than the tolerance (0.005 by default) fails the run; a single
+  measurement is not a trend and is not reported. Verified: worsening exits 1, improving exits 0.
+  See D54.
+- **Read-only report commands no longer demand `--case`.** Both report modes read only the history
+  file, yet they first had to survive the "these case files must exist" validation, so a pure report
+  could fail because of an unrelated argument. `--case` is now optional, and leaving it out is only
+  an error when no report command was given.
+- **An ordering bug I introduced and caught in the same round**: moving `--record-history` together
+  with the two read-only branches put it before `rows` is computed, which it depends on. Two attempts
+  to locate the block with `str.index` picked the wrong occurrence; moving by line number was the fix.
+  The lesson is recorded: when relocating code, use line numbers, because the first match of a marker
+  is often not the one you mean.
+- **`doctor status`'s human-readable output** now shows the normalisation mode, whether OpenCC is
+  installed, the default model and the latest local benchmark (or that there is no local history).
+- Tests: **451 passing** offline cases.
+
 ## 1.28.0 - 2026-09-29
 
 - **Trends reach the repository at release time, and only then.** D52 put the measurement ledger in

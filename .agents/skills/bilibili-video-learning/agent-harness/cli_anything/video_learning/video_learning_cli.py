@@ -217,6 +217,13 @@ def doctor_status_command() -> None:
         f"Lexicon: {payload['skill_assets']['lexicon_entries']} entries; "
         f"conflict preferences: {payload['skill_assets']['conflict_preference_entries']}; "
         f"chunking default: {payload['skill_assets']['chunk_length_default']}",
+        f"Normalization: {payload['skill_assets']['simplification_mode']} "
+        f"(opencc installed: {payload['skill_assets']['opencc_available']}); "
+        f"default model: {payload['skill_assets']['default_model']}",
+        "Latest benchmark: " + (f"{payload['skill_assets']['latest_benchmark'].get('case')} "
+                                f"CER {payload['skill_assets']['latest_benchmark'].get('cer')} "
+                                f"({payload['skill_assets']['latest_benchmark'].get('norm')})"
+                                if payload['skill_assets'].get('latest_benchmark') else "无本地历史"),
         f"Status: {'OK' if payload['ok'] else 'FAILED'}",
     ]
     emit_result(payload, "\n".join(human_lines))
