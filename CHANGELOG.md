@@ -2,6 +2,24 @@
 
 All notable public changes are recorded here.
 
+## 1.28.0 - 2026-09-29
+
+- **Trends reach the repository at release time, and only then.** D52 put the measurement ledger in
+  CI artifacts so the repository stays untouched, but having the trend in the repository still has
+  value - it just should not be written by every run. `--append-release-summary` therefore takes a
+  history file and a release version and appends one row per case-and-mode (the latest value) to
+  docs/BENCHMARKS.md, creating the file with its explanation on first use. See D53.
+- **The rows already in docs/BENCHMARKS.md are backfilled and say so.** They are the numbers this
+  repository actually measured, labelled with the release they were measured in (the Bilibili rows at
+  v1.17.0 when the golds were built, the fallback rows at v1.23.0 from CI). Automatic summarisation
+  starts with v1.28.0; the file does not pretend the earlier rows came from it.
+- **`doctor assets` reports the latest benchmark** it can find through `VIDEO_LEARNING_HISTORY`,
+  returning an empty object when there is no local history rather than inventing one.
+- Another instance of a mistake already recorded in D51: two new tests used `skill_assets` in a file
+  that never imported it. Cross-file helpers and objects must be imported explicitly, and the habit
+  worth forming is to check that every name a new test uses exists in that file.
+- Tests: **448 passing** offline cases.
+
 ## 1.27.0 - 2026-09-29
 
 - **Every CI run now records the four benchmark cases as an artifact.** The history flag only helped

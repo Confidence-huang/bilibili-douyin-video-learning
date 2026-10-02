@@ -1601,6 +1601,30 @@ run_benchmark.py --case "bili1-large=<fixtures>/bili1_large.json:bilibili-BV1nta
 
 ---
 
+## D53. 趋势进仓库只在**发版**时；`doctor` 报"最近一次基准"
+
+**决策一：`--append-release-summary <history.jsonl> --release-version X`，发版时把每个
+`用例 × 归一模式` 的**最新值**追加到 `docs/BENCHMARKS.md`。**
+D52 把历史放在 CI 工件里（不改仓库），但"趋势进仓库"仍有价值——只是不该由每次 CI 写入。
+于是分工明确：**CI 记台账（工件）**、**发版写汇总（仓库一表）**。首次创建时自动写表头与说明。
+
+**回溯填写的诚实标注**：`docs/BENCHMARKS.md` 前几行是我按**已实测**数字回填的，并标注它们**实际测于哪个版本**
+（B站 三条测于 v1.17.0 建金标时、fallback 两条测于 v1.23.0 的 CI 环境）。**自动汇总从 v1.28.0 起生效**——
+不假装这些行是自动生成的。
+
+**决策二：`doctor assets` 增加 `latest_benchmark`。** 读本地历史文件的最后一行
+（路径来自 `VIDEO_LEARNING_HISTORY` 环境变量），没有就如实返回空对象。
+这样"上次这台机器测出来多少"不必去翻 artifact。
+
+**又一次同类失误（第 N 次）**：两条新测试我放进了**没有导入 `skill_assets` 的文件**里 → NameError。
+和 D51 记的是同一个毛病：**跨文件辅助/对象必须显式导入**。这条已经重复到值得当成检查项：
+新增测试时先确认"我用的名字在本文件里存在"。
+
+**重新评估触发条件**：如果 `docs/BENCHMARKS.md` 行数增长到需要筛选，应改为 JSON + 生成器；
+如果 `latest_benchmark` 需要"最近 N 次"，应改为读 tail。
+
+---
+
 ## 决策索引
 
 | 编号 | 主题 | 是否可推翻 |
@@ -1657,3 +1681,4 @@ run_benchmark.py --case "bili1-large=<fixtures>/bili1_large.json:bilibili-BV1nta
 | D50 | 笔记显示处理链；数字标注来源 | 可（处理链变长则折叠） |
 | D51 | doctor 报归一依赖/默认模型；基线历史可追加 | 可（历史增长则加报表命令） |
 | D52 | 历史进 CI 工件；趋势表由数据生成 | 可（发版汇总时改存 docs） |
+| D53 | 发版写趋势汇总；doctor 报最近一次基准 | 可（行数增长则改 JSON+生成器） |

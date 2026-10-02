@@ -165,3 +165,18 @@ def test_benchmark_records_history_jsonl(tmp_path):
     entry = _json.loads(lines[0])
     assert entry["case"] == "bili1-large" and entry["norm"] and entry["cer"] is not None
     assert entry["timestamp"].endswith("Z")
+
+
+# --- doctor 的"最近一次基准"：无历史时如实为空 ---
+def test_latest_benchmark_is_empty_without_history(tmp_path, monkeypatch):
+    monkeypatch.delenv("VIDEO_LEARNING_HISTORY", raising=False)
+
+    assert skill_assets.read_latest_benchmark(tmp_path / "无.jsonl") == {}
+
+
+# --- 有历史时返回最后一行 ---
+def test_latest_benchmark_reads_last_line(tmp_path):
+    history = tmp_path / "h.jsonl"
+    history.write_text('{"case": "a", "cer": 0.01}\n{"case": "b", "cer": 0.02}\n', encoding="utf-8")
+
+    assert skill_assets.read_latest_benchmark(history)["case"] == "b"
