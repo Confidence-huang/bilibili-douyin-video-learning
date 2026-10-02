@@ -470,3 +470,36 @@ def test_benchmark_case_parsing_falls_back_to_last_colon():
 
     assert case["hypothesis"].name == "不存在.json"
     assert case["gold"].name == "bilibili-BV1ntah6TEe9.json"
+
+
+# ============================ 历史趋势表（D52） ============================
+
+# --- 同一 用例×模式 多次测量后要给出首末值与差值 ---
+def test_history_report_shows_trend_per_case_and_mode(capsys):
+    benchmark = load_script_module("run_benchmark")
+    entries = [
+        {"case": "a", "norm": "t2s:opencc+n", "cer": 0.0100, "timestamp": "2026-01-01T00:00:00Z"},
+        {"case": "a", "norm": "t2s:opencc+n", "cer": 0.0090, "timestamp": "2026-01-02T00:00:00Z"},
+        {"case": "a", "norm": "t2s:fallback+n", "cer": 0.0130, "timestamp": "2026-01-02T00:00:00Z"},
+    ]
+
+    table = benchmark.render_history_report(entries)
+
+    assert "| a | t2s:opencc+n | 2 | 0.01 | 0.009 | -0.001" in table     # 首末值与差值都要在
+    assert "t2s:fallback+n" in table                                   # 不同模式分开统计
+    assert table.count("\n") == 3                                      # 表头 + 分隔 + 两行
+
+
+# --- 历史为空时给出可执行提示，而不是空表 ---
+def test_history_report_handles_empty_history():
+    benchmark = load_script_module("run_benchmark")
+
+    assert "历史为空" in benchmark.render_history_report([])
+
+
+# --- 历史文件不存在时返回用法码，而不是抛栈 ---
+def test_history_report_missing_file(tmp_path, capsys):
+    benchmark = load_script_module("run_benchmark")
+
+    assert benchmark.main(["--case", "x=/tmp/a.json:/tmp/b.json", "--history-report", str(tmp_path / "无.json")]) == 2
+    assert "error" in capsys.readouterr().out

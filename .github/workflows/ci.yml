@@ -76,6 +76,20 @@ jobs:
             --case "bili2-large=$fixtures/bili2_large.json:bilibili-BV1Kyas6wEuz.json" \
             --case "bili2-small=$fixtures/bili2_small.json:bilibili-BV1Kyas6wEuz.json" \
             --baseline "$skill_root/eval/baselines.json"
+      - name: Record benchmark history (uploaded as an artifact, never committed)
+        run: |
+          skill_root="$PWD/.agents/skills/bilibili-video-learning"
+          fixtures="$skill_root/agent-harness/cli_anything/video_learning/tests/fixtures"
+          .ci-venv/bin/python "$skill_root/scripts/run_benchmark.py" \
+            --case "bili1-large=$fixtures/bili1_large.json:bilibili-BV1ntah6TEe9.json" \
+            --case "bili1-small=$fixtures/bili1_small.json:bilibili-BV1ntah6TEe9.json" \
+            --case "bili2-large=$fixtures/bili2_large.json:bilibili-BV1Kyas6wEuz.json" \
+            --case "bili2-small=$fixtures/bili2_small.json:bilibili-BV1Kyas6wEuz.json" \
+            --record-history "${RUNNER_TEMP}/benchmark-history.jsonl"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-history-ubuntu
+          path: ${{ runner.temp }}/benchmark-history.jsonl
       - name: Smoke-test the installed CLI entrypoint
         run: |
           skill_root="$PWD/.agents/skills/bilibili-video-learning"
@@ -152,6 +166,20 @@ jobs:
             --case "bili2-large=$fixtures\bili2_large.json:bilibili-BV1Kyas6wEuz.json" `
             --case "bili2-small=$fixtures\bili2_small.json:bilibili-BV1Kyas6wEuz.json" `
             --baseline "$skillRoot\eval\baselines.json"
+      - name: Record benchmark history (uploaded as an artifact, never committed)
+        run: |
+          $skillRoot = Join-Path $PWD ".agents/skills/bilibili-video-learning"
+          $fixtures = Join-Path $skillRoot "agent-harness\cli_anything\video_learning\tests\fixtures"
+          .\.ci-venv\Scripts\python.exe "$skillRoot\scripts\run_benchmark.py" `
+            --case "bili1-large=$fixtures\bili1_large.json:bilibili-BV1ntah6TEe9.json" `
+            --case "bili1-small=$fixtures\bili1_small.json:bilibili-BV1ntah6TEe9.json" `
+            --case "bili2-large=$fixtures\bili2_large.json:bilibili-BV1Kyas6wEuz.json" `
+            --case "bili2-small=$fixtures\bili2_small.json:bilibili-BV1Kyas6wEuz.json" `
+            --record-history "$env:RUNNER_TEMP\benchmark-history.jsonl"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-history-windows
+          path: ${{ runner.temp }}/benchmark-history.jsonl
       - name: Run portable lifecycle probes
         shell: pwsh
         run: |

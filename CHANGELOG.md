@@ -2,6 +2,19 @@
 
 All notable public changes are recorded here.
 
+## 1.27.0 - 2026-09-29
+
+- **Every CI run now records the four benchmark cases as an artifact.** The history flag only helped
+  locally, and locally nobody records on every change, so a cross-version trend still had nowhere to
+  live. Both jobs append to a JSONL file in the runner's temp directory and upload it, which means
+  every pull request carries a record, the repository stays untouched, and evaluation remains
+  read-only by default. Download the artifact and run --history-report to see it. See D52.
+- **`run_benchmark.py --history-report` turns that file into a trend table**, grouped by
+  case and normalisation mode with runs, first and last CER, delta and timestamps. It is tested
+  against synthetic history (0.1111 to 0.1050, delta -0.0061) because the real history has not
+  accumulated yet; an empty history prints an actionable hint rather than a blank table.
+- Tests: **444 passing** offline cases.
+
 ## 1.26.0 - 2026-09-29
 
 - **`doctor assets` now answers "which normalisation will this machine use".** It reports whether

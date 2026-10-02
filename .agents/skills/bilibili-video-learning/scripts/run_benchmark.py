@@ -163,6 +163,25 @@ def render_table(rows: List[Dict[str, Any]]) -> str:
     return "\n".join(lines)
 
 
+# --- 从历史 JSONL 生成趋势表：每个 用例×模式 一行，给出首末值与差值（D52）---
+def render_history_report(entries: List[Dict[str, Any]]) -> str:
+    grouped: Dict[tuple, List[Dict[str, Any]]] = {}
+    for entry in entries:
+        key = (entry.get("case"), entry.get("norm"))
+        if entry.get("cer") is not None:
+            grouped.setdefault(key, []).append(entry)
+    if not grouped:
+        return "（历史为空：先跑 run_benchmark.py --record-history <file.jsonl> 记录几次）"
+    columns = ("case", "norm", "runs", "first_cer", "last_cer", "delta", "first_at", "last_at")
+    lines = ["| " + " | ".join(columns) + " |", "|" + "---|" * len(columns)]
+    for (case, norm), items in sorted(grouped.items()):
+        first, last = items[0], items[-1]
+        delta = round(last["cer"] - first["cer"], 4)
+        lines.append("| " + " | ".join(str(value) for value in (
+            case, norm, len(items), first["cer"], last["cer"], f"{delta:+}", first.get("timestamp"), last.get("timestamp"))) + " |")
+    return "\n".join(lines)
+
+
 # --- 与基线记录比较：劣化失败，改善要显式报出来（D47）---
 def compare_baseline(rows: List[Dict[str, Any]], baseline: Dict[str, Any]) -> List[str]:
     problems: List[str] = []
@@ -199,6 +218,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--json", action="store_true", help="输出机读 JSON")
     parser.add_argument("--baseline", help="基线记录文件：读每个用例记录的 CER 与容差，劣化即失败（D47）")
     parser.add_argument("--record-history", help="把本次结果追加到 JSONL 历史文件（每次测量一行，便于日后看趋势）")
+    parser.add_argument("--history-report", help="读取 JSONL 历史并打印趋势表（每个 用例×模式 一行）")
     parser.add_argument("--write-baseline", action="store_true",
                         help="把本次结果写回基线文件（改善后一键落库；CI 不要用，见 D49）")
     args = parser.parse_args(argv)
@@ -214,6 +234,14 @@ def main(argv: Optional[List[str]] = None) -> int:
         return 2
 
     print(json.dumps(rows, ensure_ascii=False, indent=1) if args.json else render_table(rows))
+    if args.history_report:
+        history_path = Path(args.history_report)
+        if not history_path.exists():
+            print(json.dumps({"error": f"历史文件不存在：{history_path}"}, ensure_ascii=False))
+            return 2
+        entries = [json.loads(line) for line in history_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+        print(render_history_report(entries))
+        return 0
     if args.record_history:
         history_path = Path(args.record_history)
         history_path.parent.mkdir(parents=True, exist_ok=True)
