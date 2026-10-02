@@ -96,6 +96,33 @@ python .agents/skills/bilibili-video-learning/scripts/eval_asr.py \
 
 度量本身也修掉过一个真 bug：`difflib` 里 `insert` 是"参考有、假设缺"＝漏字，`delete` 才是"假设多出来"＝幻觉候选；第一版按直觉解读，把金标里被 ASR 漏掉的整段报成了"幻觉"。
 
+### 三支金标与跨金标回归
+
+上表只是抖音一支素材的消融。真正的结论要跨素材看，所以 `eval/gold/` 里有三支金标，
+每支都在 `reference.kind` 里如实标注"谁核对过"：
+
+| 金标 | 素材特征 | `large` CER | `small` CER | 证据强度 |
+|---|---|---|---|---|
+| `douyin-7690619057690828986` | 中文口播，259.77 秒 | 0.0187 | 0.0433 | `human-verified` |
+| `bilibili-BV1ntah6TEe9` | 安静的 30 秒教程 | **0.0085** | 0.1111 | `agent-verified`（第 12 行 unresolved） |
+| `bilibili-BV1Kyas6wEuz` | 109 秒叙述 + 表情包配音 + 音乐 | **0.0051** | 0.2298 | `agent-verified`（后半段 22 行 unresolved） |
+
+**证据强度不可混用**：只有 `human-verified`（抖音）能当**验收基准**；两支 B站 金标是
+Agent 逐行判定、不确定项已标注，因此只能当**基线比较**。第二支的标点抄自 `large` 初稿，
+所以它 `punct_f1=1.0` 是**同义反复**，不能当标点质量证据。
+
+一条命令跑完全部对照表，`--max-cer` 是闸门（任一用例超标即返回 1）：
+
+```bash
+python .agents/skills/bilibili-video-learning/scripts/run_benchmark.py \
+  --case "bili-large=<产出>.json:bilibili-BV1ntah6TEe9.json" \
+  --case "douyin-large=<产出>.json:douyin-7690619057690828986.json" \
+  --max-cer 0.05
+```
+
+CI 的 ubuntu 与 windows 两个 job 都会用真实金标 + 裁剪 fixture 跑这道闸门，
+所以**每次 PR 都会被真实素材验证**，CER 劣化到 0.05 以上直接变红。
+
 ## 抖音取流的三条路径与现状
 
 | 路径 | 用法 | 现状 |
@@ -192,30 +219,44 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File .\verify.ps1 -SkipRuntime
 ## 测试与验证
 
 ```bash
-# 离线测试套件：不需要模型/网络/浏览器/Cookie
+# 离线测试套件：不需要模型/网络/浏览器/Cookie（用安装好的运行时解释器跑，不装 GPU 权重也能跑）
 skill_root="$PWD/.agents/skills/bilibili-video-learning"
-python -m pytest -q "$skill_root/agent-harness/cli_anything/video_learning/tests"
+runtime_python="${XDG_DATA_HOME:-$HOME/.local/share}/bilibili-video-learning/runtime/bin/python"
+PYTHONPATH="$skill_root/agent-harness" \
+  BILIBILI_VIDEO_LEARNING_ROOT="$skill_root" \
+  BILIBILI_VIDEO_LEARNING_PYTHON="$runtime_python" \
+  VIDEO_LEARNING_SKIP_INSTALLED_RUNTIME_TESTS=1 \
+  "$runtime_python" -m pytest -q "$skill_root/agent-harness/cli_anything/video_learning/tests"
 
 # 仓库边界与版本一致性（隐私、禁止入库的媒体后缀、版本号、宿主清单）
 python tools/validate_repository.py
 
 # 源码级校验（CI 使用的同一入口）
-./verify_linux.sh --skill-root "$skill_root" --skip-runtime
+./verify_linux.sh --skill-root "$skill_root" --skip-runtime   # 只查语法、符号链接与媒体/凭据边界，不跑测试
+./verify_linux.sh --skill-root "$skill_root"                  # 完整校验：上面那条 pytest 也在其中
 ```
 
-当前 **281 passed, 1 skipped**，CI 在 ubuntu 与 windows 两个平台跑同一套离线用例。
-需要 ffmpeg 现场生成真实媒体的用例（无音轨检测、音频抽取）在本机跑；CI 未装 ffmpeg 时它们会跳过，
-因此这几条路径的**持续回归保护偏弱**——这是已知缺口。
+当前 **453 passed, 1 skipped**（与 [CHANGELOG.md](./CHANGELOG.md) 记录的离线用例数一致），
+CI 在 ubuntu 与 windows 两个平台跑同一套离线用例。
+需要 ffmpeg 现场生成真实媒体的用例（无音轨检测、音频抽取）在本机跑；CI 两个平台都已装
+`imageio-ffmpeg`（见 `.github/workflows/ci.yml`），所以这几条路径在 CI 里也真的会跑。
+`VIDEO_LEARNING_SKIP_INSTALLED_RUNTIME_TESTS=1` 会跳过 `doctor status` 那条安装态用例
+（它要求运行时里真的有 `yt-dlp`/`ffmpeg`），这也是那 1 条 skipped 的来源——**安装态与源码态
+之间仍有一层只有真装过才覆盖的缺口**。
 
 ## 已知限制（诚实清单）
 
 - **抖音匿名取流不可用**：平台风控降级是真实的，稳定路径是本地文件或浏览器取流（见上表）；
 - **图文作品只识别不处理**：无音轨作品返回退出码 **27** 并提示改走图片 OCR，但图片 OCR 入口尚未实现；
 - **B站字幕轨匿名通常拿不到**（实测抽查 50 个热门视频均无轨），因此 `transcribe_bilibili.py` 的"字幕优先"在现实中多半回退到 ASR；
-- **长视频未验证**：现有实测最长 259.77 秒；`chunk_length` 分块能力未被使用，30–90 分钟课程视频的耗时/显存/漂移行为未知；
-- **标点靠停顿启发式**：实测 ASR 对中文可能产出零标点，当前只在段边界按停顿插入 `，`/`。`，没有标点恢复模型；
+- **长视频只标定到 46.4 分钟**：真实 B站 数学课 `BV154hD61Ez8`（46.4 分钟）整段解码 93.5 秒（29.8× 实时），
+  分块 600s/2s 为 132.5 秒、5 块、文本相似度 **0.9052**——**分块反而慢 42%**，它的价值是韧性与显存上界而非速度，
+  因此短于约 30 分钟不开分块；30–90 分钟课程视频的漂移行为仍未验证；
+- **标点靠停顿启发式**：实测 ASR 对中文可能产出零标点，当前只在段边界按停顿插入 `，`/`。`，规则法 F1 天花板实测 **0.313**（受分段粒度限制）。`scripts/punctuate.py` 留了可选模型后端（extra `punctuation`，默认关闭、缺失时自动退回规则法），但**尚未接入主流水线**；
 - **定向重解与重新分段收益未证实**：前者在真实素材上要么找不到可疑段、要么全部被拒（这是保守判据的正确行为），后者在现有分段上是不切分的 no-op；
-- **金标只有 1 条（抖音）**：B站 侧改动尚无度量支撑；
+- **B站 金标未经人耳确认**：三支金标里只有抖音是 `human-verified`；两支 B站 金标是 `agent-verified`
+  （`BV1ntah6TEe9` 第 12 行两配置都给出不成词的串，`BV1Kyas6wEuz` 后半段 22 行为 `unresolved`），
+  所以它们只能作**基线比较**，**不能当验收基准**，也还不能代表整个 B站 素材分布（最长的只有 109 秒）；
 - **评测指标仍会把数字写法差异算成错误**（`6/六`、`100/一百`），所以上面的 CER 数字里约 5 个字符不是真的识别错误；
 - `vault_ingest.py` / `vault_synthesize.py` / `export_anki.py` 是**独立脚本、未接入流水线**（Obsidian 侧的知识库流程由插件承担）；
 - **不做**：说话人分离、平台签名逆向、验证码识别（分别需要 torch 生态或不合适的合规成本）。
