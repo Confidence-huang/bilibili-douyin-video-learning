@@ -529,3 +529,44 @@ def test_release_summary_is_empty_without_measurements():
     benchmark = load_script_module("run_benchmark")
 
     assert benchmark.release_summary_rows([], "1.28.0") == []
+
+
+# ============================ 趋势闸门（D54） ============================
+
+# --- 末次比上次劣化超容差 → 报问题；改善或只有一次测量 → 不报 ---
+def test_history_regressions_only_flags_worsening_trends():
+    benchmark = load_script_module("run_benchmark")
+    entries = [
+        {"case": "worse", "norm": "m", "cer": 0.010},
+        {"case": "worse", "norm": "m", "cer": 0.020},            # 劣化 +0.01 > 容差
+        {"case": "better", "norm": "m", "cer": 0.020},
+        {"case": "better", "norm": "m", "cer": 0.010},           # 改善
+        {"case": "single", "norm": "m", "cer": 0.030},           # 只有一次
+    ]
+
+    problems = benchmark.history_regressions(entries)
+
+    assert len(problems) == 1 and problems[0].startswith("worse [m]")
+    assert "劣化" in problems[0]
+
+
+# --- 容差内不算劣化（避免把噪声当回归）---
+def test_history_regressions_respects_tolerance():
+    benchmark = load_script_module("run_benchmark")
+    entries = [{"case": "a", "norm": "m", "cer": 0.010}, {"case": "a", "norm": "m", "cer": 0.012}]
+
+    assert benchmark.history_regressions(entries, tolerance=0.005) == []
+    assert benchmark.history_regressions(entries, tolerance=0.001)      # 收紧容差才报
+
+
+# --- 不同模式分开看趋势：一个模式劣化不影响另一个 ---
+def test_history_regressions_are_per_case_and_mode():
+    benchmark = load_script_module("run_benchmark")
+    entries = [
+        {"case": "a", "norm": "opencc", "cer": 0.01}, {"case": "a", "norm": "opencc", "cer": 0.02},
+        {"case": "a", "norm": "fallback", "cer": 0.03}, {"case": "a", "norm": "fallback", "cer": 0.03},
+    ]
+
+    problems = benchmark.history_regressions(entries)
+
+    assert len(problems) == 1 and "opencc" in problems[0]
