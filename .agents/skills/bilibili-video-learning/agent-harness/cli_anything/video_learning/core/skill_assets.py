@@ -21,6 +21,24 @@ def count_entries(path: Path) -> int:
                if line.strip() and not line.lstrip().startswith("#"))
 
 
+# --- 读取本地基准历史里最近一次测量（没有历史就如实返回 None）---
+def read_latest_benchmark(history_path=None) -> dict:
+    import json
+    import os
+
+    raw = history_path or os.environ.get("VIDEO_LEARNING_HISTORY")
+    if not raw:
+        return {}
+    path = Path(raw)
+    if not path.exists():
+        return {}
+    try:
+        lines = [line for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+        return json.loads(lines[-1]) if lines else {}
+    except Exception:
+        return {}
+
+
 # --- 盘点 Skill 资产：词表、裁决表、分块可用性与默认值、提示词模板 ---
 def inspect_skill_assets(skill_root: str | Path) -> dict:
     root = Path(skill_root)
@@ -45,6 +63,7 @@ def inspect_skill_assets(skill_root: str | Path) -> dict:
     except Exception:
         opencc_available = False
     return {
+        "latest_benchmark": read_latest_benchmark(),                           # 本地历史里最近一次测量（D53）
         "lexicon_entries": count_entries(root / "references" / "asr-lexicon.txt"),
         "conflict_preference_entries": count_entries(root / "references" / "conflict-preferences.txt"),
         "chunking_available": (scripts / "asr_chunking.py").exists(),

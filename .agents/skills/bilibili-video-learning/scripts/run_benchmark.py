@@ -163,6 +163,19 @@ def render_table(rows: List[Dict[str, Any]]) -> str:
     return "\n".join(lines)
 
 
+# --- 发版汇总：从历史取每个 用例×模式 的最新值，追加成趋势表的一行（D53）---
+def release_summary_rows(entries: List[Dict[str, Any]], release: str) -> List[str]:
+    latest: Dict[tuple, Dict[str, Any]] = {}
+    for entry in entries:
+        if entry.get("cer") is None:
+            continue
+        latest[(entry.get("case"), entry.get("norm"))] = entry            # 后出现的覆盖先出现的 = 最新
+    rows = []
+    for (case, norm), entry in sorted(latest.items()):
+        rows.append(f"| {release} | {case} | {norm} | {entry['cer']} | {entry.get('coverage')} | {entry['timestamp']} |")
+    return rows
+
+
 # --- 从历史 JSONL 生成趋势表：每个 用例×模式 一行，给出首末值与差值（D52）---
 def render_history_report(entries: List[Dict[str, Any]]) -> str:
     grouped: Dict[tuple, List[Dict[str, Any]]] = {}
@@ -219,6 +232,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--baseline", help="基线记录文件：读每个用例记录的 CER 与容差，劣化即失败（D47）")
     parser.add_argument("--record-history", help="把本次结果追加到 JSONL 历史文件（每次测量一行，便于日后看趋势）")
     parser.add_argument("--history-report", help="读取 JSONL 历史并打印趋势表（每个 用例×模式 一行）")
+    parser.add_argument("--append-release-summary", help="把历史里每个 用例×模式 的最新值追加到趋势表文件（发版时用）")
+    parser.add_argument("--release-version", help="配合 --append-release-summary：本次发布的版本号，如 1.28.0")
     parser.add_argument("--write-baseline", action="store_true",
                         help="把本次结果写回基线文件（改善后一键落库；CI 不要用，见 D49）")
     args = parser.parse_args(argv)
@@ -234,6 +249,30 @@ def main(argv: Optional[List[str]] = None) -> int:
         return 2
 
     print(json.dumps(rows, ensure_ascii=False, indent=1) if args.json else render_table(rows))
+    if args.append_release_summary:
+        history_path = Path(args.append_release_summary)
+        target_path = Path(args.append_release_summary).parent.parent / "docs" / "BENCHMARKS.md"
+        if not history_path.exists():
+            print(json.dumps({"error": f"历史文件不存在：{history_path}"}, ensure_ascii=False))
+            return 2
+        if not args.release_version:
+            print(json.dumps({"error": "--append-release-summary 需要 --release-version"}, ensure_ascii=False))
+            return 2
+        entries = [json.loads(line) for line in history_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+        rows = release_summary_rows(entries, args.release_version)
+        if not rows:
+            print("（历史为空：没有可汇总的行）")
+            return 0
+        if not target_path.exists():                                      # 首次创建时给出表头与说明
+            target_path.write_text("# 基准趋势（发版汇总）\n\n"
+                                   "每次发版时把历史里每个 用例×模式 的**最新值**追加一行（来源：CI 上传的 "
+                                   "`benchmark-history` artifact；命令 `run_benchmark.py --append-release-summary`）。\n\n"
+                                   "| 版本 | 用例 | 归一模式 | CER | 覆盖率 | 记录时间 |\n|---|---|---|---|---|---|\n",
+                                   encoding="utf-8")
+        with target_path.open("a", encoding="utf-8") as handle:
+            handle.write("\n".join(rows) + "\n")
+        print(f"APPENDED {len(rows)} row(s) -> {target_path}")
+        return 0
     if args.history_report:
         history_path = Path(args.history_report)
         if not history_path.exists():

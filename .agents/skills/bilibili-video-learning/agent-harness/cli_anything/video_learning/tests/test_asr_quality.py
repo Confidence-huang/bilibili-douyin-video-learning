@@ -503,3 +503,29 @@ def test_history_report_missing_file(tmp_path, capsys):
 
     assert benchmark.main(["--case", "x=/tmp/a.json:/tmp/b.json", "--history-report", str(tmp_path / "无.json")]) == 2
     assert "error" in capsys.readouterr().out
+
+
+# ============================ 发版汇总与"最近一次基准"（D53） ============================
+
+# --- 汇总取每个 用例×模式 的**最新**值（后出现的覆盖先出现的）---
+def test_release_summary_uses_latest_per_case_and_mode():
+    benchmark = load_script_module("run_benchmark")
+    entries = [
+        {"case": "a", "norm": "t2s:opencc+n", "cer": 0.02, "timestamp": "T1"},
+        {"case": "a", "norm": "t2s:opencc+n", "cer": 0.01, "timestamp": "T2"},
+        {"case": "a", "norm": "t2s:fallback+n", "cer": 0.03, "timestamp": "T2"},
+    ]
+
+    rows = benchmark.release_summary_rows(entries, "1.28.0")
+
+    joined = "\n".join(rows)
+    assert len(rows) == 2                                                 # 两个模式各一行（不假设行序）
+    assert "| 1.28.0 | a | t2s:opencc+n | 0.01 |" in joined               # opencc 取最新 0.01
+    assert "| 1.28.0 | a | t2s:fallback+n | 0.03 |" in joined
+
+
+# --- 没有历史时汇总为空，不得凭空写行 ---
+def test_release_summary_is_empty_without_measurements():
+    benchmark = load_script_module("run_benchmark")
+
+    assert benchmark.release_summary_rows([], "1.28.0") == []
