@@ -85,11 +85,11 @@ jobs:
             --case "bili1-small=$fixtures/bili1_small.json:bilibili-BV1ntah6TEe9.json" \
             --case "bili2-large=$fixtures/bili2_large.json:bilibili-BV1Kyas6wEuz.json" \
             --case "bili2-small=$fixtures/bili2_small.json:bilibili-BV1Kyas6wEuz.json" \
-            --record-history "${RUNNER_TEMP}/benchmark-history.jsonl"
+            --record-history ".benchmark-history.jsonl"
       - uses: actions/upload-artifact@v4
         with:
           name: benchmark-history-ubuntu
-          path: ${{ runner.temp }}/benchmark-history.jsonl
+          path: .benchmark-history.jsonl
       - name: Smoke-test the installed CLI entrypoint
         run: |
           skill_root="$PWD/.agents/skills/bilibili-video-learning"
@@ -175,11 +175,11 @@ jobs:
             --case "bili1-small=$fixtures\bili1_small.json:bilibili-BV1ntah6TEe9.json" `
             --case "bili2-large=$fixtures\bili2_large.json:bilibili-BV1Kyas6wEuz.json" `
             --case "bili2-small=$fixtures\bili2_small.json:bilibili-BV1Kyas6wEuz.json" `
-            --record-history "$env:RUNNER_TEMP\benchmark-history.jsonl"
+            --record-history ".benchmark-history.jsonl"
       - uses: actions/upload-artifact@v4
         with:
           name: benchmark-history-windows
-          path: ${{ runner.temp }}/benchmark-history.jsonl
+          path: .benchmark-history.jsonl
       - name: Run portable lifecycle probes
         shell: pwsh
         run: |
