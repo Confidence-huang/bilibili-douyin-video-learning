@@ -1558,6 +1558,29 @@ run_benchmark.py --case "bili1-large=<fixtures>/bili1_large.json:bilibili-BV1nta
 
 ---
 
+## D51. 把"处理链"也放进 `doctor`，并开始记录基线历史
+
+**决策一：`doctor assets` 报出归一依赖与默认模型。** 新增 `opencc_available`（在 **CLI 自己的运行环境**里
+用 `importlib.util.find_spec("opencc")` 真实探测）与 `simplification_mode`（由前者推导）与 `default_model`
+（用正则从入口脚本读，不写死）。这样"这次跑出来的是 opencc 还是 fallback""默认会不会用 large"
+**一条命令就能问出来**，不必翻源码或复现一次转写。
+
+**决策二：`run_benchmark.py --record-history <file.jsonl>`，每次测量追加一行。**
+基线文件只保留"当前值"，历史无处可查，于是 `docs/ACCEPTANCE.md` 的溯源表只能手写。
+现在每次测量追加 `{timestamp, case, norm, cer, coverage, ...}`，**只追加不改写**；
+将来同一用例在不同版本上重复测量后，趋势可以**从数据生成**而不是靠回忆。
+
+**为什么不设成默认**：历史文件属于"测量台账"，不应该由 CI 或随手一次评测悄悄改动——
+与 `--write-baseline` 同样的理由：**评测默认只读**。
+
+**顺带记一次小失误**：这条测试我一开始用了另一个测试文件里的辅助函数（`load_script_module`），
+本文件没有 → 失败。跨文件的测试辅助必须显式导入，不能"看着别处有就以为这里有"。
+
+**重新评估触发条件**：如果历史文件增长到需要查询，应加 `--history-report` 生成趋势表；
+如果 `doctor assets` 的字段继续增长，按 D39 的触发条件拆成 `doctor assets --verbose`。
+
+---
+
 ## 决策索引
 
 | 编号 | 主题 | 是否可推翻 |
@@ -1612,3 +1635,4 @@ run_benchmark.py --case "bili1-large=<fixtures>/bili1_large.json:bilibili-BV1nta
 | D48 | 归一模式报告真实值（opencc/fallback），基线按模式记录 | 可（出现第二种归一实现时扩展） |
 | D49 | 归一结果写进产出诊断；基线改善可落库 | 可（归一改为联网下载时重写 reason） |
 | D50 | 笔记显示处理链；数字标注来源 | 可（处理链变长则折叠） |
+| D51 | doctor 报归一依赖/默认模型；基线历史可追加 | 可（历史增长则加报表命令） |

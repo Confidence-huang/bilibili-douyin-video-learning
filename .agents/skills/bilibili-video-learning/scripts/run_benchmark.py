@@ -23,6 +23,7 @@ from __future__ import annotations  # 允许在返回结构里使用现代类型
 import argparse  # 稳定命令行契约
 import json  # 结果与表格都能机读
 import sys  # 退出码
+import time  # 历史记录的时间戳
 from pathlib import Path  # 路径处理
 from typing import Any, Dict, List, Optional
 
@@ -197,6 +198,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--max-cer", type=float, help="闸门：任用例 CER 超过该值即返回 1（供 CI/发版前用）")
     parser.add_argument("--json", action="store_true", help="输出机读 JSON")
     parser.add_argument("--baseline", help="基线记录文件：读每个用例记录的 CER 与容差，劣化即失败（D47）")
+    parser.add_argument("--record-history", help="把本次结果追加到 JSONL 历史文件（每次测量一行，便于日后看趋势）")
     parser.add_argument("--write-baseline", action="store_true",
                         help="把本次结果写回基线文件（改善后一键落库；CI 不要用，见 D49）")
     args = parser.parse_args(argv)
@@ -212,6 +214,14 @@ def main(argv: Optional[List[str]] = None) -> int:
         return 2
 
     print(json.dumps(rows, ensure_ascii=False, indent=1) if args.json else render_table(rows))
+    if args.record_history:
+        history_path = Path(args.record_history)
+        history_path.parent.mkdir(parents=True, exist_ok=True)
+        stamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        with history_path.open("a", encoding="utf-8") as handle:              # 只追加，不改写历史
+            for row in rows:
+                handle.write(json.dumps({"timestamp": stamp, **row}, ensure_ascii=False) + "\n")
+        print(f"RECORDED history: {history_path}（{len(rows)} 行）")
     if args.baseline:
         baseline_path = Path(args.baseline)
         baseline_path = baseline_path if baseline_path.exists() else GOLD_DIR.parent / args.baseline
