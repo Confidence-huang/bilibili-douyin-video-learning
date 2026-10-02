@@ -76,6 +76,12 @@ jobs:
             --case "bili2-large=$fixtures/bili2_large.json:bilibili-BV1Kyas6wEuz.json" \
             --case "bili2-small=$fixtures/bili2_small.json:bilibili-BV1Kyas6wEuz.json" \
             --baseline "$skill_root/eval/baselines.json"
+      - name: Restore benchmark history (accumulates across runs; never committed)
+        uses: actions/cache@v4
+        with:
+          path: .benchmark-history.jsonl
+          key: benchmark-history-cache-${{ github.ref_name }}
+          restore-keys: benchmark-history-cache-
       - name: Record benchmark history (uploaded as an artifact, never committed)
         run: |
           skill_root="$PWD/.agents/skills/bilibili-video-learning"
@@ -85,11 +91,16 @@ jobs:
             --case "bili1-small=$fixtures/bili1_small.json:bilibili-BV1ntah6TEe9.json" \
             --case "bili2-large=$fixtures/bili2_large.json:bilibili-BV1Kyas6wEuz.json" \
             --case "bili2-small=$fixtures/bili2_small.json:bilibili-BV1Kyas6wEuz.json" \
-            --record-history ".benchmark-history.jsonl"
+            --record-history "$PWD/.benchmark-history.jsonl"
+      - name: Trend gate (fail if the newest measurement is worse than the previous one)
+        run: |
+          skill_root="$PWD/.agents/skills/bilibili-video-learning"
+          .ci-venv/bin/python "$skill_root/scripts/run_benchmark.py" \
+            --history-report "$PWD/.benchmark-history.jsonl" --fail-on-regression
       - uses: actions/upload-artifact@v4
         with:
           name: benchmark-history-ubuntu
-          path: .benchmark-history.jsonl
+          path: ${{ runner.temp }}/benchmark-history.jsonl
       - name: Smoke-test the installed CLI entrypoint
         run: |
           skill_root="$PWD/.agents/skills/bilibili-video-learning"
@@ -166,6 +177,12 @@ jobs:
             --case "bili2-large=$fixtures\bili2_large.json:bilibili-BV1Kyas6wEuz.json" `
             --case "bili2-small=$fixtures\bili2_small.json:bilibili-BV1Kyas6wEuz.json" `
             --baseline "$skillRoot\eval\baselines.json"
+      - name: Restore benchmark history (accumulates across runs; never committed)
+        uses: actions/cache@v4
+        with:
+          path: .benchmark-history.jsonl
+          key: benchmark-history-cache-${{ github.ref_name }}
+          restore-keys: benchmark-history-cache-
       - name: Record benchmark history (uploaded as an artifact, never committed)
         run: |
           $skillRoot = Join-Path $PWD ".agents/skills/bilibili-video-learning"
@@ -175,11 +192,16 @@ jobs:
             --case "bili1-small=$fixtures\bili1_small.json:bilibili-BV1ntah6TEe9.json" `
             --case "bili2-large=$fixtures\bili2_large.json:bilibili-BV1Kyas6wEuz.json" `
             --case "bili2-small=$fixtures\bili2_small.json:bilibili-BV1Kyas6wEuz.json" `
-            --record-history ".benchmark-history.jsonl"
+            --record-history "$env:RUNNER_TEMP\benchmark-history.jsonl"
+      - name: Trend gate (fail if the newest measurement is worse than the previous one)
+        run: |
+          $skillRoot = Join-Path $PWD ".agents/skills/bilibili-video-learning"
+          .\.ci-venv\Scripts\python.exe "$skillRoot\scripts\run_benchmark.py" `
+            --history-report "$PWD\.benchmark-history.jsonl" --fail-on-regression
       - uses: actions/upload-artifact@v4
         with:
           name: benchmark-history-windows
-          path: .benchmark-history.jsonl
+          path: ${{ runner.temp }}/benchmark-history.jsonl
       - name: Run portable lifecycle probes
         shell: pwsh
         run: |
