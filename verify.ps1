@@ -1,7 +1,7 @@
 ﻿<#
 验证分享包或安装后的 bilibili-video-learning。
 默认检查清单、源码、运行环境、CLI 版本和离线测试，不访问平台、不读取浏览器 Cookie、不下载媒体。
-调用示例：powershell -ExecutionPolicy Bypass -File .\verify.ps1
+调用示例（PowerShell 7 / pwsh）：pwsh -ExecutionPolicy Bypass -File .\verify.ps1
 #>
 [CmdletBinding()]
 param(

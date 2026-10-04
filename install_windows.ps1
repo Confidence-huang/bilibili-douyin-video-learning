@@ -1,7 +1,7 @@
 ﻿<#
 安装 bilibili-video-learning 分享包。
 脚本先把白名单源码复制到独立暂存目录，再用可恢复备份替换目标；完整模式随后按 uv 锁文件重建运行环境和 CLI 命令入口。
-调用示例：powershell -ExecutionPolicy Bypass -File .\install_windows.ps1
+调用示例（PowerShell 7 / pwsh）：pwsh -ExecutionPolicy Bypass -File .\install_windows.ps1
 #>
 [CmdletBinding()]
 param(
@@ -139,7 +139,9 @@ function Install-CommandWrapper {
 & '$safeRuntimePython' -m cli_anything.video_learning @args
 exit `$LASTEXITCODE
 "@
-    $commandText = "@echo off`r`npowershell -NoProfile -ExecutionPolicy Bypass -File `"%~dp0cli-anything-video-learning.ps1`" %*`r`n"
+    # 生成的包装器优先 pwsh（PowerShell 7），老机器没有 pwsh 才退回 5.1；
+    # REM 行只是提示，真正执行的是下面那一句。
+    $commandText = "@echo off`r`nrem Prefer PowerShell 7 (pwsh); fall back to Windows PowerShell 5.1 only if pwsh is missing.`r`nwhere pwsh >nul 2>&1 && (set `"PS=pwsh`") || (set `"PS=powershell`")`r`n`"%PS%`" -NoProfile -ExecutionPolicy Bypass -File `"%~dp0cli-anything-video-learning.ps1`" %*`r`n"
     $utf8NoBom = New-Object System.Text.UTF8Encoding($false) # 无 BOM 的包装器兼容 Windows PowerShell 与 cmd。
     [System.IO.File]::WriteAllText($wrapperScript, $scriptText, $utf8NoBom)
     [System.IO.File]::WriteAllText($wrapperCommand, $commandText, $utf8NoBom)
@@ -201,4 +203,4 @@ if (-not $SkipPathUpdate) {
 
 Write-Host ""
 Write-Host "Install complete. Run:"
-Write-Host "powershell -ExecutionPolicy Bypass -File `"$packageRoot\verify.ps1`" -SkillRoot `"$destination`""
+Write-Host "pwsh -ExecutionPolicy Bypass -File `"$packageRoot\verify.ps1`" -SkillRoot `"$destination`""

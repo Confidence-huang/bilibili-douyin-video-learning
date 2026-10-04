@@ -1,4 +1,4 @@
-# Windows 与 Linux 安装说明
+﻿# Windows 与 Linux 安装说明
 
 ## 共同前置条件
 
@@ -17,8 +17,8 @@ FFmpeg 优先从 PATH 发现；若主机没有安装，运行环境会使用 `im
 ```powershell
 git clone https://github.com/Confidence-huang/bilibili-douyin-video-learning.git
 cd bilibili-douyin-video-learning
-powershell -ExecutionPolicy Bypass -File .\install_windows.ps1
-powershell -ExecutionPolicy Bypass -File .\verify.ps1
+pwsh -ExecutionPolicy Bypass -File .\install_windows.ps1
+pwsh -ExecutionPolicy Bypass -File .\verify.ps1
 ```
 
 默认安装到 `%USERPROFILE%\.agents\skills\bilibili-video-learning`，运行时位于 `.venv-gpu`。安装器启用 `asr` 与 `cuda-compat` 两个依赖档案；后者保留 OpenAI Whisper/PyTorch CUDA 回退，但 GPU 是否可用仍须通过 `nvidia-smi`、`torch.cuda.is_available()` 和实际 ASR 日志确认。
@@ -26,7 +26,7 @@ powershell -ExecutionPolicy Bypass -File .\verify.ps1
 自定义目标：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\install_windows.ps1 `
+pwsh -ExecutionPolicy Bypass -File .\install_windows.ps1 `
   -DestinationRoot "E:\AgentSkills\bilibili-video-learning"
 ```
 
@@ -68,8 +68,8 @@ cd bilibili-douyin-video-learning
 Windows：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\install_windows.ps1 -SkipRuntime -SkipPathUpdate
-powershell -ExecutionPolicy Bypass -File .\verify.ps1 -SkipRuntime
+pwsh -ExecutionPolicy Bypass -File .\install_windows.ps1 -SkipRuntime -SkipPathUpdate
+pwsh -ExecutionPolicy Bypass -File .\verify.ps1 -SkipRuntime
 ```
 
 Linux：
