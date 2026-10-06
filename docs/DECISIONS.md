@@ -1670,6 +1670,57 @@ D52 把历史放在 CI 工件里（不改仓库），但"趋势进仓库"仍有�
 
 ---
 
+## D56. 落盘与 stdout 形态解耦；跨模块传参必须由测试锁定
+
+**背景**：一天之内在同一支管道上撞了两个同类故障，都是"看起来正常、实际什么都没发生"。
+
+**决策一：`--output` 是落盘指令，`--json` 只决定 stdout 的形态，两者不得写成互斥分支。**
+`douyin_extract.py` 的 `main()` 原本写成：
+
+```python
+if args.json:
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+elif args.output:          # ← --json 一开，这一整段永远不执行
+    ...
+    write_emitted_artifacts(...)
+```
+
+于是 `--json --emit md,json,srt,txt --include-transcript -o <目录>` **退出码 0、stdout 一份完整 JSON、
+磁盘上一个文件都没有**，而且没有任何警告。调用方（含 CLI harness，它固定用 `--json`）无从判断产物写没写出来。
+
+**判据不是"我觉得该这样"，而是仓库里已有三个脚本这么写**：`hard_subtitle.py`、`eval_asr.py`、
+`verify_transcript.py` 全是「`--output` 独立落盘 + `--json` 只管 stdout」。
+横向比一遍同类入口就能分清"设计取舍"还是"漏改"——**这是本次最有价值的一条判据**。
+
+修法：先按 `--output` 落盘，再决定 stdout 打 JSON 还是 Markdown；JSON 模式下的 `Saved to:` 通知改走
+**stderr**，保证 stdout 仍是可直接 `json.loads` 的单个文档（契约：`.agents/skills/bilibili-video-learning/agent-harness`
+的 `run_json_script` 解析 stdout，任何混入的提示都会变成 `returned non-JSON stdout`）。
+
+**决策二：被调函数用到、调用方也传了的参数，必须由测试锁定它真的到达。**
+`choose_downloaded_video()` 的函数体在读 `bridge_options`、`extract_douyin()` 的调用点也在传，
+唯独**签名里没有这个参数**。Python 在进入函数之前就抛错，于是浏览器上下文、公开 SSR、yt-dlp
+三条取流路径一条都走不到：
+
+```
+"error": "choose_downloaded_video() got an unexpected keyword argument 'bridge_options'"
+```
+
+回归用例因此不能只断言"没抛异常"，而要**断言参数到达被调用方**：
+把 `download_video_via_browser` 换成记录器，检查 CDP 端口、专用 profile 与画质档位确实被收到。
+
+**代价与取舍**：`--output` 与 `--json` 同时给出时，落盘通知只能进 stderr（stdout 必须纯净），
+这意味着"人类可读的进度"与"机器可读的 JSON"在 JSON 模式下必须分流通行——
+代价是 stderr 变得更重要；换来的是两个正交诉求不再互相取消。
+
+**重新评估触发条件**：若将来把 `--json` 正式定义为"纯机器通道、禁止任何副作用"，
+那么正确的修法是**在 JSON 模式下显式报错拒绝 `--output`**，而不是继续落盘——
+这需要一次接口契约升级，届时应同时更新 SKILL.md 与 USAGE.md 的示例。
+
+**实测**：修后真实链路复验（公开抖音视频、SSR、1080p、large/CUDA、61 段、覆盖率 0.9752 → 0.99、退出码 0）；
+`--json --emit md,json -o <目录>` 命中身份校验过的缓存后落盘两件产物，且 stdout 仍能整体 `json.loads`。
+
+---
+
 ## 决策索引
 
 | 编号 | 主题 | 是否可推翻 |
@@ -1729,3 +1780,4 @@ D52 把历史放在 CI 工件里（不改仓库），但"趋势进仓库"仍有�
 | D53 | 发版写趋势汇总；doctor 报最近一次基准 | 可（行数增长则改 JSON+生成器） |
 | D54 | 趋势闸门；只读报告不要求 --case | 可（噪声大则改"连续两次劣化"） |
 | D55 | 趋势闸门进 CI（cache）；汇总幂等；assets --verbose | 可（cache key 改按 base 分支） |
+| D56 | 落盘与 stdout 形态解耦；跨模块传参由测试锁定 | 可（若 `--json` 改为禁止副作用的纯机器通道） |
