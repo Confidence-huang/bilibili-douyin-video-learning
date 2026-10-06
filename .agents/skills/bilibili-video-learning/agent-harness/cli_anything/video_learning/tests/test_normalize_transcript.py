@@ -276,6 +276,29 @@ def test_emit_writes_requested_artifacts_and_guards_the_full_transcript(monkeypa
     assert "00:00:00,000 --> 00:00:01,000" in srt
 
 
+# --- --emit 与 --json 同时使用时，产物照写，stdout 必须仍是纯 JSON ---
+def test_json_stdout_stays_parseable_next_to_emit(monkeypatch, tmp_path, capsys):
+    douyin = load_script("douyin_extract")
+    result = {
+        "platform": "douyin",
+        "metadata": {"title": "夹具标题"},
+        "segments": [{"start": 0.0, "end": 1.0, "text": "正文"}],
+        "full_text": "正文",
+        "diagnostics": [],
+    }
+    monkeypatch.setattr(douyin, "extract_douyin", lambda *a, **k: dict(result))
+    output_dir = tmp_path / "out"
+
+    exit_code = douyin.main(["-o", str(output_dir), "7654321098765432100", "--emit", "md,json", "--json"])
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    payload = json.loads(captured.out)                        # "Saved to:" 之类的通知一旦混进 stdout，这一行就会失败。
+    assert payload["metadata"]["title"] == "夹具标题"
+    assert "Saved to:" in captured.err                        # 落盘通知改走 stderr，JSON 契约不受影响。
+    assert sorted(path.name for path in output_dir.iterdir()) == ["夹具标题.json", "夹具标题.md"]
+
+
 # --- 缓存身份必须区分保真度 ---
 def test_cache_identity_tracks_fidelity():
     douyin = load_script("douyin_extract")

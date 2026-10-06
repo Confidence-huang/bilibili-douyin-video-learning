@@ -973,9 +973,8 @@ def main(argv: list = None) -> int:
         del result["metadata"]["_raw"]
     result = sanitize_diagnostics(result)                                        # fallback 成功仍可能携带失败诊断。
 
-    if args.json:
-        print(json.dumps(result, ensure_ascii=False, indent=2))
-    elif args.output:
+    # --output 是「落盘」指令，--json 只决定 stdout 的形态，两者互不排斥（与 hard_subtitle、eval_asr 同一约定）。
+    if args.output:
         try:
             emit_formats = parse_emit_formats(args.emit) or ["md"]                   # 未指定 --emit 时保持历史上的单 Markdown 行为
         except ValueError as exc:
@@ -986,12 +985,17 @@ def main(argv: list = None) -> int:
             print(f"[douyin] ERROR: --emit {','.join(sorted(transcript_formats))} writes the full transcript; "
                   f"add --include-transcript", file=sys.stderr)
             return EXIT_GENERIC_FAILURE
-        written = write_emitted_artifacts(result, args.output, emit_formats,
-                                          include_transcript=args.include_transcript)
-        for filepath in written:
-            print(f"Saved to: {filepath}")
-    else:
-        print(to_markdown(result, include_transcript=args.include_transcript))
+        for filepath in write_emitted_artifacts(result, args.output, emit_formats,
+                                                include_transcript=args.include_transcript):
+            if args.json:
+                log(f"Saved to: {filepath}")                                         # --json 时落盘通知改走 stderr，stdout 必须始终是可解析的 JSON
+            else:
+                print(f"Saved to: {filepath}")
+
+    if args.json:
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+    elif not args.output:
+        print(to_markdown(result, include_transcript=args.include_transcript))       # 既没要 JSON 也没要落盘时，退回 stdout 上的 Markdown
 
     return 0
 
