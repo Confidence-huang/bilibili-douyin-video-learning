@@ -236,7 +236,7 @@ python tools/validate_repository.py
 ./verify_linux.sh --skill-root "$skill_root"                  # 完整校验：上面那条 pytest 也在其中
 ```
 
-当前 **453 passed, 1 skipped**（与 [CHANGELOG.md](./CHANGELOG.md) 记录的离线用例数一致），
+当前 **455 passed, 1 skipped**（与 [CHANGELOG.md](./CHANGELOG.md) 记录的离线用例数一致），
 CI 在 ubuntu 与 windows 两个平台跑同一套离线用例。
 需要 ffmpeg 现场生成真实媒体的用例（无音轨检测、音频抽取）在本机跑；CI 两个平台都已装
 `imageio-ffmpeg`（见 `.github/workflows/ci.yml`），所以这几条路径在 CI 里也真的会跑。
