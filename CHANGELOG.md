@@ -2,6 +2,22 @@
 
 All notable public changes are recorded here.
 
+## 1.30.1 - 2026-10-06
+
+- **Douyin downloads no longer die before a path is even chosen.** `choose_downloaded_video()` read
+  `bridge_options` in its body and `extract_douyin()` passed it, but the parameter was missing from
+  the signature, so every run that was not a local file failed with "unexpected keyword argument
+  'bridge_options'" before the browser context, the public SSR chain or yt-dlp could be tried. The
+  parameter is declared and forwarded now, with a regression test asserting that the CDP port, the
+  dedicated profile and the ratio actually reach the browser fetcher. Verified end to end on a
+  public video: SSR path, 1080p, large model on CUDA, 61 segments, coverage 0.9752 -> 0.99, exit 0.
+- **`--json` no longer swallows `--output`.** `main()` used `if args.json / elif args.output`, so
+  `--json --emit md,json,srt,txt -o <dir>` exited 0, printed a JSON document and wrote no files at
+  all, without a warning. `--output` is now independent of `--json`, the same shape
+  `hard_subtitle.py` and `eval_asr.py` already used; the "Saved to:" notices move to stderr in JSON
+  mode so stdout stays a single parseable JSON document.
+- Tests: **455 passing** offline cases.
+
 ## 1.30.0 - 2026-09-29
 
 - **The trend gate runs in CI, against history that accumulates.** An artifact per run starts from
