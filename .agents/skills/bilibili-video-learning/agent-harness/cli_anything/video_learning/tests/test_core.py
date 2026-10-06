@@ -419,6 +419,35 @@ def test_douyin_auto_download_falls_back_to_ytdlp(monkeypatch, tmp_path):
     assert any(item["step"] == "ssr_pipeline" and item["ok"] is False for item in payload["diagnostics"])
 
 
+def test_douyin_browser_download_forwards_bridge_options(monkeypatch, tmp_path):
+    douyin = load_script("douyin_extract")
+    received = {}
+
+    def record_browser_call(url, work_dir, bridge_options=None, ratio="1080p"):
+        received["bridge_options"] = bridge_options                          # 端口与专用 profile 收不到就会连错 CDP 实例，这是本次回归的判据。
+        received["ratio"] = ratio                                            # 画质档位必须一起透传，否则会静默下载默认清晰度。
+        return {
+            "download_method": "browser",
+            "video_path": str(tmp_path / "fixture.mp4"),
+            "metadata": {"video_id": "7654321098765432100"},
+            "diagnostics": [],
+        }
+
+    monkeypatch.setattr(douyin, "download_video_via_browser", record_browser_call)
+
+    payload = douyin.choose_downloaded_video(
+        "7654321098765432100",
+        str(tmp_path),
+        download_method="browser",
+        ratio="720p",
+        bridge_options={"port": 9333, "profile": "fixture-profile"},
+    )
+
+    assert received["bridge_options"] == {"port": 9333, "profile": "fixture-profile"}
+    assert received["ratio"] == "720p"
+    assert payload["download_method"] == "browser"
+
+
 class RecordingRuntime:
     """Capture backend selection without making platform or media requests."""
 

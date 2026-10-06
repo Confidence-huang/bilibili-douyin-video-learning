@@ -432,6 +432,7 @@ def choose_downloaded_video(
     proxy: str = None,
     impersonate: str = None,
     socket_timeout: int = 60,
+    bridge_options: dict = None,                                 # 浏览器取流的 CDP 参数（端口、专用 profile）必须原样透传，否则会连到默认实例。
 ) -> dict:
     diagnostics = []
     ssr_platform_limited = False                                 # SSR 撞上风控时必须把 26 传出去，不能被笼统的 20 吞掉（D25）。
