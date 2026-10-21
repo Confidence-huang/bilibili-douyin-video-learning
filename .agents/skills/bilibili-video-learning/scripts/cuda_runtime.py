@@ -36,6 +36,7 @@ LIBRARY_NAME_PATTERNS = {                                                       
     "cudnn": ("libcudnn.so.9", "libcudnn.so.8", "cudnn64_9.dll"),
 }
 PIP_EXTRA_HINT = 'pip install -e ".[gpu-cuda12]"'                                    # 缺库时给用户的具体命令
+_DLL_DIRECTORY_HANDLES: list = []                                                    # add_dll_directory 的句柄必须一直持有，归零即被移除
 
 
 # --- 列出可能存放 nvidia 运行时库的目录 ---
@@ -81,6 +82,17 @@ def discover_libraries(directories: list[str] | None = None) -> dict[str, str]:
     return found
 
 
+# --- 注册 Windows DLL 搜索目录：返回的句柄必须长期持有 ---
+def _register_dll_directories(directories: list[str], report: dict) -> None:
+    for directory in directories:
+        try:
+            handle = os.add_dll_directory(directory)                                 # 句柄被回收时 CPython 会调用 RemoveDllDirectory
+            _DLL_DIRECTORY_HANDLES.append(handle)                                     # 存进模块级列表，撑到进程结束
+            report["path_updated"] = True
+        except (AttributeError, OSError) as exc:
+            report["errors"].append(f"add_dll_directory({directory}): {exc}")
+
+
 # --- 预加载 CUDA 运行时库，并让子进程也能找到它们 ---
 def prepare_cuda_libraries(directories: list[str] | None = None, *, preload: bool = True) -> dict:
     directories = directories if directories is not None else candidate_library_dirs()
@@ -110,12 +122,7 @@ def prepare_cuda_libraries(directories: list[str] | None = None, *, preload: boo
                 report["errors"].append(f"{os.path.basename(path)}: {exc}")
 
     if os.name == "nt":                                                              # Windows 用 DLL 目录，比 PATH 更可靠
-        for directory in directories:
-            try:
-                os.add_dll_directory(directory)                                       # 需要保留返回的 cookie，交给进程生命周期
-                report["path_updated"] = True
-            except (AttributeError, OSError) as exc:
-                report["errors"].append(f"add_dll_directory({directory}): {exc}")
+        _register_dll_directories(directories, report)
     else:
         existing = os.environ.get("LD_LIBRARY_PATH", "")
         parts = [part for part in existing.split(os.pathsep) if part]

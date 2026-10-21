@@ -200,3 +200,22 @@ def test_doctor_without_runtime_keeps_the_legacy_shape():
     gpu = doctor_module._inspect_gpu()
 
     assert {"available", "devices", "error"} <= set(gpu)
+
+
+# --- Windows：add_dll_directory 的句柄必须被持有，否则目录会被立刻移除 ---
+def test_windows_dll_directory_handles_are_retained(monkeypatch, tmp_path):
+    registered: list[object] = []
+
+    def fake_add_dll_directory(directory):
+        handle = SimpleNamespace(path=directory)  # 模拟 CPython 返回的句柄对象
+        registered.append(handle)
+        return handle
+
+    monkeypatch.setattr(cuda_runtime.os, "add_dll_directory", fake_add_dll_directory, raising=False)
+    monkeypatch.setattr(cuda_runtime, "_DLL_DIRECTORY_HANDLES", [])
+    report = {"path_updated": False, "errors": []}
+
+    cuda_runtime._register_dll_directories([str(tmp_path / "a"), str(tmp_path / "b")], report)
+
+    assert report["path_updated"] is True
+    assert cuda_runtime._DLL_DIRECTORY_HANDLES == registered  # 不持有的话引用归零就会被 RemoveDllDirectory
