@@ -64,9 +64,11 @@ def normalize_segments(segments, *, origin: str = "auto") -> list[dict]:
     if schema == SCHEMA_UNKNOWN and origin == "auto":                                # 自动判断失败时，按字段逐个尝试更宽容的推断
         schema = _guess_schema_by_fields(segments)
     if schema == SCHEMA_UNKNOWN:
+        first = segments[0]                                                          # 首元素决定形状；非 dict 也要给可读线索
+        observed = sorted(first.keys()) if isinstance(first, dict) else f"a bare {type(first).__name__}"
         raise TranscriptSchemaError(
             f"unrecognized transcript schema (origin={origin}); "
-            f"expected {CANONICAL_FIELDS} or {ASR_FIELDS}, got keys={sorted(segments[0].keys())}"
+            f"expected {CANONICAL_FIELDS} or {ASR_FIELDS}, got {observed}"
         )
 
     normalized = []

@@ -425,3 +425,13 @@ def test_benchmark_write_baseline_updates_file(tmp_path, capsys):
     assert code == 0
     assert written["cases"][0]["cer_by_mode"]                       # 本次结果已落库
     assert "WROTE baseline" in capsys.readouterr().out
+
+
+# --- 非 dict 元素必须报 schema 错误，而不是 AttributeError 裸奔 ---
+def test_non_dict_segments_raise_a_schema_error():
+    module = load_script("normalize_transcript")
+
+    with pytest.raises(module.TranscriptSchemaError) as raised:
+        module.normalize_segments(["裸字符串"], origin="auto")
+
+    assert "a bare str" in str(raised.value)  # 错误信息要说出真实收到了什么，而不是只说 keys 取不到
