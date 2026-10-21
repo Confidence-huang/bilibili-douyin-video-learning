@@ -22,6 +22,7 @@ import re
 import sys
 import json
 import tempfile
+from urllib.parse import urlsplit  # 只接受 http(s) 来源，其它协议一律拒绝
 import subprocess
 from pathlib import Path
 from datetime import datetime
@@ -229,6 +230,14 @@ def _add_ytdlp_network_options(
     return cmd
 
 
+def _append_source_url(command: list, url: str) -> None:
+    """只接受 http(s)，并用 -- 终止选项解析，防止 URL 被当成 yt-dlp 选项。"""
+    scheme = urlsplit(url).scheme.lower()                                        # 位置参数只能是网络地址
+    if scheme not in ("http", "https"):
+        raise ValueError(f"unsupported source URL scheme: {url[:40]!r}")
+    command.extend(["--", url])                                                  # -- 之后一律当位置参数，--exec 之类不会被解析
+
+
 def fetch_metadata(
     url: str,
     proxy: str = None,
@@ -247,7 +256,7 @@ def fetch_metadata(
         "--no-playlist", "--ignore-errors", "--no-warnings",
     ]
     _add_ytdlp_network_options(cmd, proxy=proxy, impersonate=impersonate, socket_timeout=socket_timeout)
-    cmd.append(url)
+    _append_source_url(cmd, url)
     result = _run(cmd, timeout=60, desc="Fetching Douyin metadata")
     # yt-dlp outputs JSON to stdout; stderr may have warnings
     stdout = (result.stdout or "").strip()
@@ -296,7 +305,7 @@ def download_video_ytdlp(
         "--fragment-retries", "3",
     ]
     _add_ytdlp_network_options(cmd, proxy=proxy, impersonate=impersonate, socket_timeout=socket_timeout)
-    cmd.append(url)
+    _append_source_url(cmd, url)
     result = _run(cmd, timeout=180, desc="Downloading Douyin video")
     if result.returncode != 0:
         raise RuntimeError(f"yt-dlp download failed:\nSTDERR: {result.stderr[:500]}")
