@@ -268,7 +268,8 @@ def prefer_side(primary_span: str, secondary_span: str, table: Dict[str, str]) -
 
 def fuse_transcripts(primary: list[dict], secondary: list[dict], *,
                      primary_source: str = "subtitle", secondary_source: str = "asr",
-                     preferences: Optional[Dict[str, str]] = None) -> dict:
+                     preferences: Optional[Dict[str, str]] = None,
+                     min_span_chars: int = DEFAULT_MIN_SPAN_CHARS) -> dict:
     primary = normalize_segments(primary)                             # 公开接口自己过适配层：两种历史形状都能直接传
     secondary = normalize_segments(secondary)
     sources = {"primary": primary_source, "secondary": secondary_source}
@@ -333,6 +334,10 @@ def fuse_transcripts(primary: list[dict], secondary: list[dict], *,
     fused_segments = _ensure_source_coverage(fused_segments, secondary, sources)  # 次源段落绝不因对齐歧义消失
     _assert_union_preserved(primary_text, secondary_text, fused_segments, sources)
 
+    if min_span_chars > 1:                                                       # 与 compare_timelines 同一语义：阈值以下的差异不进报告
+        spans = [span for span in spans
+                 if max(len(span["primary_text"]), len(span["secondary_text"])) >= min_span_chars]
+
     secondary_only_spans = sum(1 for span in spans if span["side"] == "secondary_only")
     needs_review_count = sum(1 for item in fused_segments if item.get("needs_review"))
     provenance_counts = {
@@ -361,7 +366,8 @@ def fuse_transcripts(primary: list[dict], secondary: list[dict], *,
             "secondary_only_spans": secondary_only_spans,             # "补上的段数"就是它：次源有、主源漏
             "secondary_only_chars": sum(len(span["secondary_text"]) for span in spans if span["side"] == "secondary_only"),
         },
-        "verdict": _fusion_verdict(provenance_counts, needs_review_count, secondary_only_spans, secondary_source),
+        "verdict": _fusion_verdict(provenance_counts, needs_review_count, secondary_only_spans, secondary_source,
+                                   differing_spans=len(spans)),
     }
 
 
@@ -546,8 +552,11 @@ def _missing_characters(text: str, covered: set) -> list[str]:
 
 # --- 给融合结果一句可以直接转述的结论 ---
 def _fusion_verdict(provenance_counts: dict, needs_review_count: int, secondary_only_spans: int,
-                    secondary_source: str = "asr") -> str:
+                    secondary_source: str = "asr", differing_spans: Optional[int] = None) -> str:
     secondary_count = provenance_counts.get(secondary_source, 0)      # 补上的段落数按调用方给的来源名统计
+    if differing_spans == 0 and needs_review_count:
+        # 阈值把差异全过滤掉了，但融合稿里仍留着对照写法：主结论必须与退出码 0 一致，不能一边说"要复核"
+        return f"min-span 阈值以上没有差异；融合稿内部仍有 {needs_review_count} 段带对照写法，可按需复核"
     if needs_review_count == 0 and secondary_only_spans == 0:
         return "两份来源逐段一致，融合稿没有需要复核的段落"
     parts = []
@@ -584,9 +593,8 @@ def main(argv=None) -> int:
             # 融合报告本身就是差异报告：spans / similarity 与 --fuse 之外的调用完全一致
             report = fuse_transcripts(primary, secondary,
                                       primary_source=args.primary_source,
-                                      secondary_source=args.secondary_source)
-            report["spans"] = [span for span in report["spans"]              # min-span-chars 对融合同样生效
-                               if max(len(span["primary_text"]), len(span["secondary_text"])) >= args.min_span_chars]
+                                      secondary_source=args.secondary_source,
+                                      min_span_chars=args.min_span_chars)  # 阈值必须在算汇总之前生效
             differing = bool(report["spans"])
         else:
             report = compare_timelines(primary, secondary, min_span_chars=args.min_span_chars)

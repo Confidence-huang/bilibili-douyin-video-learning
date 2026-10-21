@@ -440,3 +440,22 @@ def test_shipped_conflict_preferences_are_usable():
     assert table, "references/conflict-preferences.txt 不应为空"
     confusions = verify_transcript.character_confusions(table)
     assert confusions.get("雪") == "血" and confusions.get("赠") == "赡"
+
+
+# --- min-span 阈值必须同时作用于 spans、结论与退出码 ---
+def test_fuse_threshold_keeps_report_and_exit_code_consistent(tmp_path, capsys):
+    verify = load_script("verify_transcript")
+    primary = tmp_path / "captions.json"
+    secondary = tmp_path / "asr.json"
+    primary.write_text(json.dumps([{"start": 0.0, "end": 2.0, "text": "中国男性是最好的血包"}]), encoding="utf-8")
+    secondary.write_text(json.dumps({"segments": [{"from": 0.0, "to": 2.0, "content": "中国男性是最好的雪包"}]}),
+                         encoding="utf-8")
+
+    exit_code = verify.main(["--primary", str(primary), "--secondary", str(secondary),
+                             "--fuse", "--json", "--min-span-chars", "5", "--fail-on-difference"])
+    payload = json.loads(capsys.readouterr().out)
+
+    assert exit_code == 0  # 阈值以上没有差异，就不该报 25
+    assert payload["spans"] == []  # 阈值以下的差异不进报告
+    assert "阈值以上没有差异" in payload["verdict"]  # 结论必须与退出码一致
+    assert payload["needs_review_count"] == 1  # 融合稿内部仍保留对照写法，这是产出事实
