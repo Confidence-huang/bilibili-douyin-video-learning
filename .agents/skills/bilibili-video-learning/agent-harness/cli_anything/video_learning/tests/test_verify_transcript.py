@@ -187,3 +187,21 @@ def test_sources_disagree_code_is_distinct():
 
     assert len(set(codes)) == len(codes)
     assert exit_codes.EXIT_SOURCES_DISAGREE == 25
+
+
+# --- --json 落盘时 stdout 必须保持空，人的通知只能走 stderr ---
+def test_json_output_file_keeps_stdout_machine_clean(tmp_path, capsys):
+    verify = load_script("verify_transcript")
+    first = tmp_path / "a.json"
+    second = tmp_path / "b.json"
+    report_path = tmp_path / "report.json"
+    first.write_text(json.dumps([{"start": 0.0, "end": 1.0, "text": "血包"}]), encoding="utf-8")
+    second.write_text(json.dumps([{"start": 0.0, "end": 1.0, "text": "雪包"}]), encoding="utf-8")
+
+    exit_code = verify.main(["--primary", str(first), "--secondary", str(second), "--json", "-o", str(report_path)])
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert captured.out == ""  # 机器通道：调用方解析 stdout 时不该看到 "Saved to:"
+    assert "Saved to:" in captured.err  # 落盘通知仍然可见，只是改走 stderr
+    assert json.loads(report_path.read_text(encoding="utf-8"))["summary"]["replacement_spans"] == 1

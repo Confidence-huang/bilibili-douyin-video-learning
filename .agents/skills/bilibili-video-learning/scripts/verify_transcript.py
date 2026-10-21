@@ -602,7 +602,11 @@ def main(argv=None) -> int:
 
     if args.output:
         from file_output import write_text_atomically                               # 与全仓一致：临时文件 + 原子替换
-        print(f"Saved to: {write_text_atomically(args.output, text)}")
+        saved_path = write_text_atomically(args.output, text)
+        if args.json or args.fuse:                                                   # 机器通道：落盘通知不许混进 stdout
+            print(f"Saved to: {saved_path}", file=sys.stderr)
+        else:
+            print(f"Saved to: {saved_path}")
     else:
         print(text)
 
