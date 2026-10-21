@@ -313,11 +313,12 @@ def fetch_detail(session: CdpSession, session_id: str, aweme_id: str) -> Dict[st
     return detail
 
 
-# --- 下载媒体：同样在页面里 fetch，再以 base64 回传 ---
-def download_media(session: CdpSession, session_id: str, play_url: str, output_path: str) -> str:
-    expression = (
+# --- 拼页面内取流的 JS：URL 必须经 JSON 转义，不能裸拼进引号 ---
+def _download_expression(play_url: str) -> str:
+    url_literal = json.dumps(play_url, ensure_ascii=False)                          # 双引号 + 转义：URL 里的引号打不断表达式
+    return (
         "(async () => {"
-        f"  const r = await fetch('{play_url}', {{credentials: 'include'}});"
+        f"  const r = await fetch({url_literal}, {{credentials: 'include'}});"
         "   const b = await r.arrayBuffer();"
         f"  if (b.byteLength > {MAX_TRANSFER_BYTES}) return {{status: r.status, error: 'too_large', bytes: b.byteLength}};"
         "   const bytes = new Uint8Array(b); let bin = '';"
@@ -325,6 +326,11 @@ def download_media(session: CdpSession, session_id: str, play_url: str, output_p
         "   return {status: r.status, b64: btoa(bin), bytes: b.byteLength};"
         "})()"
     )
+
+
+# --- 下载媒体：同样在页面里 fetch，再以 base64 回传 ---
+def download_media(session: CdpSession, session_id: str, play_url: str, output_path: str) -> str:
+    expression = _download_expression(play_url)
     payload = evaluate(session, session_id, expression) or {}
     if payload.get("error") == "too_large":
         raise RuntimeError(f"媒体超过上限 {MAX_TRANSFER_BYTES // (1024 * 1024)}MB（{payload.get('bytes')} 字节）")

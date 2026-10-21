@@ -200,3 +200,13 @@ def test_cli_error_paths(monkeypatch, capsys):
     assert browser_fetch.main(["--aweme-id", "7690619057690828986"]) == 20
     payload = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
     assert payload["kind"] == "browser_unavailable"
+
+
+# --- 页面内取流的 URL 必须 JSON 转义，不能被引号打断 ---
+def test_download_expression_escapes_the_play_url():
+    browser = load_script("douyin_browser_fetch")
+
+    expression = browser._download_expression("https://v.douyin.com/a'b\"c.mp4")
+
+    assert 'fetch("https://v.douyin.com/a\'b\\"c.mp4"' in expression  # 双引号字面量 + 内部双引号转义
+    assert "credentials: 'include'" in expression  # 仍带着凭据，但不再依赖用户输入的单引号
