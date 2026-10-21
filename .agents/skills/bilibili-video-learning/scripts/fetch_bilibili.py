@@ -98,14 +98,17 @@ def _run_ytdlp(url, *, cookies=None, extra_args=None):
 
         # Retry with --legacy-server-connect for OpenSSL compatibility
         if "SSL" in (proc.stderr or "") or "EOF occurred" in (proc.stderr or ""):
-            cmd.insert(1, "--legacy-server-connect")
+            cmd.insert(3, "--legacy-server-connect")                           # cmd[0:3] 是 [python, -m, yt_dlp]：选项只能插在 yt_dlp 之后
+            retry_error = None                                                 # 重试自己失败时也要留下原因，不能当作"没重试过"
             try:
                 proc = subprocess.run(
                     cmd, capture_output=True, text=True, timeout=120,
                     encoding="utf-8", errors="replace",
                 )
-            except Exception:
-                pass
+            except Exception as exc:                                           # 超时/运行时缺失都不该被静默吞掉
+                retry_error = str(exc)
+            if retry_error:
+                return {"error": f"yt-dlp SSL retry failed: {retry_error}", "stderr": stderr}
 
         if proc.returncode != 0:
             stderr = proc.stderr.strip().split("\n")[-3:] if proc.stderr else []
