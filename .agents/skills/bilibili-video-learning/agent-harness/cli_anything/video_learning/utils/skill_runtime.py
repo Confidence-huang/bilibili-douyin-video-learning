@@ -14,6 +14,7 @@ import sys  # 把经过脱敏的后端诊断转发给调用者。
 from pathlib import Path  # 安全、清晰地组合 Windows 与 POSIX 路径。
 from types import ModuleType  # 标注动态加载脚本的返回类型。
 
+from cli_anything.video_learning.utils.exit_codes import BackendScriptError  # 脚本层已分类的退出码必须原样抬到 CLI。
 from cli_anything.video_learning.utils.security import sanitize_diagnostics, sanitize_text  # 所有子进程错误共用一个脱敏出口。
 
 
@@ -94,7 +95,7 @@ class SkillRuntime:
         payload = sanitize_diagnostics(payload)                                 # 成功 fallback 也可能携带后端错误诊断。
         if completed.returncode != 0:
             error_text = sanitize_text(payload.get("error") or f"{script_name} exited with {completed.returncode}")
-            raise RuntimeError(error_text)
+            raise BackendScriptError(error_text, exit_code=completed.returncode)  # 脚本层分好的码不许在 CLI 边界退化成 1
         return payload
 
     # --- 加载只做本地纯转换的脚本函数 ---

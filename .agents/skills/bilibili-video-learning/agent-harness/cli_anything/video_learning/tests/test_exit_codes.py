@@ -201,3 +201,48 @@ def test_bilibili_success_keeps_exit_code_zero(monkeypatch, tmp_path):
 
     assert result["status"] == "ok"
     assert result["exit_code"] == 0
+
+
+# --- 后端脚本的退出码必须活着穿过 CLI 边界（D57） ---
+def test_cli_propagates_backend_script_exit_code(monkeypatch):
+    from click.testing import CliRunner  # CLI 层必须与脚本层给出同一个码
+    from cli_anything.video_learning import video_learning_cli  # 真实入口，不做替身
+
+    def backend_failed(*_args, **_kwargs):
+        raise exit_codes.BackendScriptError("分享页暂不可用", exit_code=exit_codes.EXIT_SHARE_PAGE_UNAVAILABLE)
+
+    monkeypatch.setattr(video_learning_cli, "inspect_source", backend_failed)
+    result = CliRunner().invoke(video_learning_cli.cli, ["--json", "source", "inspect", "BV1xx411c7mD"])
+
+    assert result.exit_code == exit_codes.EXIT_SHARE_PAGE_UNAVAILABLE  # 不许塌成 1
+    assert json.loads(result.stdout)["ok"] is False  # 错误仍以机器可读形态给出
+
+
+# --- 没有声明的异常按类型兜底分类 ---
+def test_cli_classifies_undeclared_failures(monkeypatch):
+    from click.testing import CliRunner
+    from cli_anything.video_learning import video_learning_cli
+
+    def timed_out(*_args, **_kwargs):
+        raise TimeoutError("read timed out")
+
+    monkeypatch.setattr(video_learning_cli, "inspect_source", timed_out)
+    result = CliRunner().invoke(video_learning_cli.cli, ["--json", "source", "inspect", "BV1xx411c7mD"])
+
+    assert result.exit_code == exit_codes.EXIT_NETWORK_TIMEOUT  # 可重试的故障要能被告知识别
+
+
+# --- 脚本子进程的 returncode 不能被 RuntimeError 吞掉 ---
+def test_run_json_script_keeps_script_exit_code(monkeypatch):
+    import subprocess  # 只替换真实子进程调用，其余逻辑照跑
+    from cli_anything.video_learning.utils.skill_runtime import SkillRuntime
+
+    completed = subprocess.CompletedProcess(args=["x"], returncode=24,
+                                            stdout='{"error": "CUDA 不可用"}', stderr="")
+    monkeypatch.setattr(subprocess, "run", lambda *args, **kwargs: completed)
+    runtime = SkillRuntime(skill_root=SKILL_ROOT, runtime_python=sys.executable)
+
+    with pytest.raises(exit_codes.BackendScriptError) as raised:
+        runtime.run_json_script("speech_to_text.py", [])
+
+    assert raised.value.exit_code == exit_codes.EXIT_TRANSCRIPTION_FAILED  # 换机器能解决，别当成普通失败

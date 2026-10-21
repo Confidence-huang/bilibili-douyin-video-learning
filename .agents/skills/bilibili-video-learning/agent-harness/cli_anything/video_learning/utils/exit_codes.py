@@ -31,6 +31,15 @@ class NoAudioTrackError(RuntimeError):
     """图文/纯图片作品没有音轨；应改走图片 OCR，而不是重试 ASR。"""
 
 
+# --- 后端脚本失败：脚本层已经分好类，CLI 只负责原样抬上去 ---
+class BackendScriptError(RuntimeError):
+    """后端脚本以非零码退出；`exit_code` 是脚本层已按契约分好的码，调用方必须原样看到。"""
+
+    def __init__(self, message: str, exit_code: int = EXIT_GENERIC_FAILURE):
+        super().__init__(message)
+        self.exit_code = exit_code                                                # 20/22/24/26/27 不许在 CLI 边界塌成 1
+
+
 # --- 判断一个异常属于哪一档退出码 ---
 def classify_failure(exc: BaseException, ssr_error_types: tuple[type, ...] = (),
                      platform_error_types: tuple[type, ...] = (),
