@@ -38,6 +38,7 @@ import json  # 校正表、ASR 时间轴与 JSON 产出都是 JSON
 import re  # 从 ffmpeg 诊断里解析时长与分辨率
 import subprocess  # 抽帧与探测都只经过 ffmpeg 进程，不引入 ffprobe 依赖
 import sys  # 业务结果写 stdout，诊断与失败写 stderr
+import time  # 流式抽帧要有自己的截止时间，不能靠一次性 subprocess 的超时
 from pathlib import Path  # 统一处理带空格与中文的本地路径
 from typing import Callable, NamedTuple, Sequence  # 参数对象必须是 NamedTuple（见 D16）
 
@@ -63,6 +64,7 @@ EMIT_FORMATS = ("srt", "txt", "json")          # 产出格式白名单；未知�
 OCR_INSTALL_HINT = 'pip install -e ".[hard-subtitle]"'  # 该 extra 已在 pyproject 里定义
 PROBE_TIMEOUT_SECONDS = 120                    # 探测只读元数据，超时说明路径/权限有问题
 SAMPLE_TIMEOUT_SECONDS = 3600                  # 4 fps 下长视频的抽帧可能很慢，不能按默认 120s 误杀
+MAX_SAMPLE_BYTES = 1024 * 1024 * 1024          # 字幕带采样上限：1080p/4fps 约 8 分钟；超过就报错，绝不 OOM
 DURATION_PATTERN = re.compile(r"Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)")   # ffmpeg -i 的诊断格式
 VIDEO_SIZE_PATTERN = re.compile(r"Video:.*?,\s*(\d{2,5})x(\d{2,5})")        # 形如 1080x1920
 SIGNIFICANT_PATTERN = re.compile(r"[\w\u4e00-\u9fff]")  # 与 verify_transcript/D21 一致：标点差异不算内容差异
@@ -671,27 +673,90 @@ def sample_band_frames(
         "-vf", f"fps={active.fps},crop={info['width']}:{band.height}:0:{band.top},format=gray",
         "-f", "rawvideo", "-pix_fmt", "gray", "-",
     ]
+    interval = 1.0 / float(active.fps) if active.fps else 1.0 / DEFAULT_FPS
+    if run is not None:                                                          # 注入 runner：保持"一次性输出再切片"的既有契约
+        samples = _buffered_samples(runner, command, frame_bytes, interval, info, band, video)
+    else:                                                                        # 生产路径：流式读帧，内存不随时长线性增长
+        samples = _streamed_samples(command, frame_bytes, interval, info, band, video)
+    return samples, info.get("duration")
+
+
+# --- 缓冲路径：注入 runner 时按整段输出切片（测试与自定义 runner 用） ---
+def _buffered_samples(runner, command, frame_bytes, interval, info, band, video) -> list[FrameSample]:
     try:
         completed = runner(command, capture_output=True, timeout=SAMPLE_TIMEOUT_SECONDS)
     except (OSError, subprocess.SubprocessError) as exc:
         raise RuntimeError(f"ffmpeg could not sample frames from {video}: {exc}") from exc
     if getattr(completed, "returncode", 0) != 0:
-        detail = (completed.stderr or b"")
-        detail = detail.decode("utf-8", "replace") if isinstance(detail, bytes) else str(detail)
-        raise RuntimeError(f"ffmpeg frame sampling failed: {detail.strip()[-500:]}")
+        raise RuntimeError(f"ffmpeg frame sampling failed: {_decode_tail(completed.stderr)}")
     raw = completed.stdout or b""
     count = len(raw) // frame_bytes
-    interval = 1.0 / float(active.fps) if active.fps else 1.0 / DEFAULT_FPS
-    samples = [
-        FrameSample(
-            timestamp=round(index * interval, 3),              # ffmpeg fps 过滤器按固定间隔出帧
-            gray=raw[index * frame_bytes:(index + 1) * frame_bytes],
-            width=int(info["width"]),
-            height=band.height,
-        )
-        for index in range(count)
-    ]
-    return samples, info.get("duration")
+    return [FrameSample(timestamp=round(index * interval, 3),                        # ffmpeg fps 过滤器按固定间隔出帧
+                        gray=raw[index * frame_bytes:(index + 1) * frame_bytes],
+                        width=int(info["width"]), height=band.height)
+            for index in range(count)]
+
+
+# --- 流式路径：一次只驻留一帧，超出预算立刻失败，而不是把整段视频读进内存 ---
+def _streamed_samples(command, frame_bytes, interval, info, band, video) -> list[FrameSample]:
+    try:
+        process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    except OSError as exc:
+        raise RuntimeError(f"ffmpeg could not sample frames from {video}: {exc}") from exc
+    started = time.monotonic()
+    samples: list[FrameSample] = []
+    total_bytes = 0
+    failure: RuntimeError | None = None
+    try:
+        while True:
+            frame = process.stdout.read(frame_bytes)                             # 一次只读一帧，内存与视频时长解耦
+            if len(frame) < frame_bytes:                                         # 播放结束，或末尾残帧
+                break
+            total_bytes += frame_bytes
+            if total_bytes > MAX_SAMPLE_BYTES:                                   # 预算用尽：明确报错好过静默 OOM
+                failure = RuntimeError(
+                    f"subtitle band sampling exceeded {MAX_SAMPLE_BYTES // (1024 * 1024)} MiB "
+                    f"({total_bytes // (1024 * 1024)} MiB so far); lower --fps, shrink the band, or split the video")
+                break
+            if time.monotonic() - started > SAMPLE_TIMEOUT_SECONDS:              # 抽帧卡死时不能无限等
+                failure = RuntimeError(f"ffmpeg frame sampling timed out after {SAMPLE_TIMEOUT_SECONDS}s")
+                break
+            samples.append(FrameSample(timestamp=round(len(samples) * interval, 3),
+                                       gray=frame, width=int(info["width"]), height=band.height))
+    finally:
+        stderr_bytes = _finish_process(process)                                  # 无论成败都收尾：不留僵死子进程
+    if failure is not None:
+        raise failure
+    if process.returncode not in (0, None) and not samples:                      # 一帧都没拿到：把 ffmpeg 的原话带上
+        raise RuntimeError(f"ffmpeg frame sampling failed: {_decode_tail(stderr_bytes)}")
+    return samples
+
+
+# --- 收尾：终止、排空 stderr、回收进程，返回诊断字节 ---
+def _finish_process(process) -> bytes:
+    if process.poll() is None:                                                   # 预算/超时提前跳出时 ffmpeg 还在跑
+        process.terminate()
+    try:
+        stderr_bytes = process.stderr.read() or b""                              # 先读空管道再等，避免子进程阻塞在写 stderr
+    except (OSError, ValueError):
+        stderr_bytes = b""
+    process.stderr.close()
+    try:
+        process.stdout.close()
+    except (OSError, ValueError):
+        pass
+    try:
+        process.wait(timeout=30)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.wait(timeout=30)
+    return stderr_bytes
+
+
+# --- 把 ffmpeg 的诊断尾部转成可读文本 ---
+def _decode_tail(detail) -> str:
+    text = detail.decode("utf-8", "replace") if isinstance(detail, bytes) else str(detail or "")
+    return text.strip()[-500:]
 
 
 # --- 对外统一入口：本地视频 -> 卡片 + 自检报告 ---

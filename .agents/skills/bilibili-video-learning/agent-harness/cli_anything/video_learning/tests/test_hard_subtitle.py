@@ -543,3 +543,87 @@ def test_asr_timeline_accepts_a_json_path(tmp_path):
 
     assert result["cross_check"]["verdict"] == "asr_covers_caption"
     assert [span["text"] for span in result["cross_check"]["asr_only"]] == ["乙"]
+
+
+# --- 生产路径：流式读帧，不把整段视频攒进内存 ---
+class _FakeStdout:
+    def __init__(self, frames):
+        self.frames = list(frames)
+        self.read_sizes = []
+
+    def read(self, size):
+        self.read_sizes.append(size)  # 记录每次读多少，用来证明是"一帧一读"
+        return self.frames.pop(0) if self.frames else b""
+
+    def close(self):
+        pass
+
+
+class _FakeStderr:
+    def read(self):
+        return b""
+
+    def close(self):
+        pass
+
+
+class _FakeProcess:
+    def __init__(self, frames, returncode=0):
+        self.stdout = _FakeStdout(frames)
+        self.stderr = _FakeStderr()
+        self.returncode = returncode
+        self.running = True  # 模拟"ffmpeg 还在跑"：预算/超时提前跳出时 poll() 必须为 None
+        self.terminated = False
+
+    def poll(self):
+        return None if self.running else self.returncode
+
+    def terminate(self):
+        self.terminated = True
+        self.running = False
+
+    def wait(self, timeout=None):
+        self.running = False
+        return self.returncode
+
+    def kill(self):
+        self.returncode = -9
+        self.running = False
+
+
+def test_sample_band_frames_streams_one_frame_at_a_time(monkeypatch):
+    hard = load_hard_subtitle()
+    frames = [b"\x01" * 100, b"\x02" * 100, b"\x03" * 100]  # 3 帧，每帧 4x25 灰度像素。
+    process = _FakeProcess(frames)
+    monkeypatch.setattr(hard.subprocess, "Popen", lambda *args, **kwargs: process)
+
+    samples, _duration = hard.sample_band_frames(
+        "clip.mp4",
+        hard.HardSubtitleSettings(fps=2.0),
+        ffmpeg_path="ffmpeg",
+        probe=lambda path: {"duration": 2.0, "width": 4, "height": 100},
+    )
+
+    assert process.stdout.read_sizes == [100, 100, 100, 100]  # 每次只读一帧（最后一次读到 EOF）
+    assert [sample.gray[0] for sample in samples] == [1, 2, 3]
+    assert [sample.timestamp for sample in samples] == [0.0, 0.5, 1.0]
+
+
+# --- 超出预算必须显式失败，而不是把机器拖到 OOM ---
+def test_sample_band_frames_fails_when_budget_is_exceeded(monkeypatch):
+    hard = load_hard_subtitle()
+    frames = [b"\x01" * 100] * 4
+    process = _FakeProcess(frames)
+    monkeypatch.setattr(hard.subprocess, "Popen", lambda *args, **kwargs: process)
+    monkeypatch.setattr(hard, "MAX_SAMPLE_BYTES", 250)  # 只允许两帧多一点
+
+    with pytest.raises(RuntimeError) as raised:
+        hard.sample_band_frames(
+            "clip.mp4",
+            hard.HardSubtitleSettings(fps=2.0),
+            ffmpeg_path="ffmpeg",
+            probe=lambda path: {"duration": 2.0, "width": 4, "height": 100},
+        )
+
+    assert "sampling exceeded" in str(raised.value)  # 文案要告诉用户怎么降下来
+    assert process.terminated is True  # 失败也要收尾，不能留僵死进程
