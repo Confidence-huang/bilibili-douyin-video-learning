@@ -2,6 +2,25 @@
 
 All notable public changes are recorded here.
 
+## 1.30.3 - 2026-10-22
+
+- **The repository-level validator tests skip in an installed copy instead of failing.**
+  `test_repository_validator.py` resolves `tools/validate_repository.py` from `skill/../../../`,
+  which is the repo root only while the Skill sits inside the checkout. An installed copy ships
+  no `tools/`, so `verify.ps1` reported three failures on every correctly installed machine —
+  the one entrance that is supposed to say "installed fine" said the opposite. `load_validator()`
+  now skips when the path is absent, and a regression test pins that detection instead of the
+  layout.
+- **The Windows installer can skip the 3GB PyTorch fallback.** `install_windows.ps1` always synced
+  `cuda-compat` (openai-whisper + torch cu128). Where faster-whisper already decodes on CUDA that
+  is pure weight, so `-LeanRuntime` syncs `asr + gpu-cuda12` only. The default stays unchanged on
+  purpose: the fallback still matters for older cards and half-broken CUDA runtimes.
+- **D8 records the measured CUDA state on Blackwell.** CT2 4.8.0 with the cuBLAS/cuDNN wheels
+  loads `large-v3` on an RTX 5070 Laptop (sm_120) in 3.5–3.6s at roughly 3.9GB resident, while the
+  same model OOMs once free VRAM drops to ~4.6GB. An 8GB card is bounded by free memory, not by
+  support — and WSL pays another ~1GB on top of that for the dxg layer.
+- Tests: **473 passing** offline cases (was 472).
+
 ## 1.30.2 - 2026-10-22
 
 - **Backend exit codes survive the CLI boundary.** `run_json_script()` turned every non-zero backend
