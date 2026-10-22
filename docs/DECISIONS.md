@@ -173,6 +173,17 @@
 | 耗时 | 约 5.4 秒（≈9× 实时） |
 | 显存占用 | 约 3.3GB |
 
+**2026-10-22 复核（Windows 原生 / 同一张 RTX 5070 Laptop / 8GB）**：
+
+| 项目 | 数值 |
+|---|---|
+| `large-v3` + `cuda/float16` | 冷启动加载 3.5–3.6s，常驻约 **3.9GB** 显存 |
+| `large-v3` + `cuda/int8_float16` | 加载 5.6s |
+| `small` + `cuda/float16` | 冷启动 33.1s（含首次读 2.9GB 权重） |
+
+同一张卡上，空闲显存 4.6GB 时 `large-v3/float16` 会 OOM，空闲 5.8GB 时同一模型 3.6s 就加载完——
+8GB 显存的分界线是"空闲 ≥4GB"，不是"这个模型能不能用"。WSL 里还多一层 dxg 开销，大概要再多让出 1GB。
+
 **取舍**：faster-whisper 依赖 CTranslate2，需要匹配的 CUDA 运行时；
 PyTorch 回退体积巨大（数 GB）。所以主路线选轻的，重的按需装。
 
@@ -180,7 +191,9 @@ PyTorch 回退体积巨大（数 GB）。所以主路线选轻的，重的按需
 `doctor status` 的 `gpu` 字段是人可复核的确认入口，且 `gpu` **不参与** `ok` 判定——
 GPU 不可用是正常降级，不是故障。
 
-**重新评估触发条件**：CTranslate2 对新架构显卡的支持出现缺口时，`cuda-compat` 会变成主路线。
+**重新评估触发条件**：CT2 4.8.0 + `gpu-cuda12` 的 cuBLAS/cuDNN 在 Blackwell（sm_120）上可完成 CUDA 加载，
+所以本机不需要 `cuda-compat`。安装器仍以它为默认（照顾老卡与异常环境），要省约 3GB 就加 `-LeanRuntime`；
+只有目标机器上 faster-whisper 连一次真实解码都做不成时，才考虑把它提为主路线。
 
 ---
 
