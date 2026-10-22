@@ -2,6 +2,20 @@
 
 All notable public changes are recorded here.
 
+## 1.30.6 - 2026-10-22
+
+- **The repository now documents its own release process, and that process is what shipped this
+  version.** `docs/RELEASING.md` records the constraints that were always in place but only lived in
+  branch protection: two required checks with `strict=true`, `required_linear_history=true` (rebase
+  only, no merge commits), force pushes forbidden, and `enforce_admins=false` — which is exactly why
+  pushing straight to `main` "worked" six times today before anyone noticed.
+- **One rule replaces the judgement call.** Docs-only changes go through a PR like everything else,
+  and the merge is followed by a patch release, so any tag a person checks out carries the current
+  documentation. This version exists for that reason: `v1.30.5` predates `RELEASING.md`.
+- **No code, dependency or runtime change.** Installed copies are byte-identical to 1.30.5 apart
+  from the version declarations.
+- Tests: **473 passing** offline cases (unchanged).
+
 ## 1.30.5 - 2026-10-22
 
 - **`INSTALL.md` catches up with the installer.** Three statements were wrong or missing after
