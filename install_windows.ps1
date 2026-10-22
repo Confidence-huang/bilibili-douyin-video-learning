@@ -2,13 +2,15 @@
 安装 bilibili-video-learning 分享包。
 脚本先把白名单源码复制到独立暂存目录，再用可恢复备份替换目标；完整模式随后按 uv 锁文件重建运行环境和 CLI 命令入口。
 调用示例（PowerShell 7 / pwsh）：pwsh -ExecutionPolicy Bypass -File .\install_windows.ps1
+精简运行时（不装 torch 回退，省约 3GB）：同一条命令再加 -LeanRuntime
 #>
 [CmdletBinding()]
 param(
     [string]$DestinationRoot = (Join-Path ([Environment]::GetFolderPath("UserProfile")) ".agents\skills\bilibili-video-learning"),
     [string]$CommandBin = (Join-Path ([Environment]::GetFolderPath("LocalApplicationData")) "bilibili-video-learning\bin"),
     [switch]$SkipRuntime,
-    [switch]$SkipPathUpdate
+    [switch]$SkipPathUpdate,
+    [switch]$LeanRuntime
 )
 
 Set-StrictMode -Version Latest                              # 拼写错误或未初始化变量必须立即暴露。
@@ -191,10 +193,12 @@ if (-not $uvCommand) {
 $runtimePython = Join-Path $destination ".venv-gpu\Scripts\python.exe"
 $harnessRoot = Join-Path $destination "agent-harness"
 $env:UV_PROJECT_ENVIRONMENT = Join-Path $destination ".venv-gpu"
-Invoke-InstallCommand -Program $uvCommand.Source -Arguments @(
-    "sync", "--project", $destination, "--locked", "--python", "3.12",
-    "--extra", "asr", "--extra", "cuda-compat"
-)
+# --- 运行时档位：默认带 torch 回退；-LeanRuntime 只装 CTranslate2 主路线（体积少约 3GB）---
+$runtimeExtras = if ($LeanRuntime) { @("--extra", "asr", "--extra", "gpu-cuda12") } else { @("--extra", "asr", "--extra", "cuda-compat") }
+$runtimeProfile = if ($LeanRuntime) { "lean (asr + gpu-cuda12)" } else { "default (asr + cuda-compat)" }
+Write-Host "Runtime profile: $runtimeProfile"
+$syncArguments = @("sync", "--project", $destination, "--locked", "--python", "3.12") + $runtimeExtras
+Invoke-InstallCommand -Program $uvCommand.Source -Arguments $syncArguments
 Invoke-InstallCommand -Program $uvCommand.Source -Arguments @("pip", "install", "--python", $runtimePython, "--no-build-isolation", "--no-deps", "-e", $harnessRoot)
 Install-CommandWrapper -BinRoot $commandDirectory -SkillRoot $destination -RuntimePython $runtimePython
 if (-not $SkipPathUpdate) {

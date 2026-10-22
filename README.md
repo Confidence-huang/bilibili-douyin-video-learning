@@ -165,7 +165,7 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File .\install_windows.ps1
 pwsh -NoProfile -ExecutionPolicy Bypass -File .\verify.ps1
 ```
 
-Windows 安装器创建 `.venv-gpu`，安装 faster-whisper，并保留 OpenAI Whisper/PyTorch CUDA 兼容回退。只有实际探测到 NVIDIA/CUDA 且运行日志显示 `cuda/float16` 时，才能声称正在使用 GPU。
+Windows 安装器创建 `.venv-gpu`，安装 faster-whisper，并保留 OpenAI Whisper/PyTorch CUDA 兼容回退；不想要那套回退（约 3GB）就用 `-LeanRuntime`，只装 `asr + gpu-cuda12`。只有实际探测到 NVIDIA/CUDA 且运行日志显示 `cuda/float16` 时，才能声称正在使用 GPU。
 
 已在 RTX 5070 Laptop（Blackwell / sm_120，8GB 显存）实测：faster-whisper `small` 以 `cuda/float16` 转写 49 秒中文音频约 5.4 秒（≈9× 实时），显存占用约 3.3GB。安装后可用 `cli-anything-video-learning --json doctor status` 输出中的 `gpu` 字段确认 CUDA 可见性。
 
