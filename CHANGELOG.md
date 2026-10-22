@@ -2,6 +2,18 @@
 
 All notable public changes are recorded here.
 
+## 1.30.4 - 2026-10-22
+
+- **Documentation-only release.** Two README statements were misleading and are fixed: the quick
+  start said the Skill is called from Codex, while six hosts load the same skill directory
+  (Codex, Claude Code, opencode, WorkBuddy, CodeBuddy, plus the WSL side); and the known-limits
+  list had no entry for the VRAM ceiling, which is the failure people actually hit.
+- **Why a version and not a bare commit.** The README fix landed after `v1.30.3` was tagged, so
+  anyone checking out that tag still reads the old text. Re-tagging would rewrite published
+  history; a patch that carries the fix does not.
+- **No runtime behaviour changes.** No script, dependency, or `.venv-gpu` content changed.
+- Tests: **473 passing** offline cases (unchanged).
+
 ## 1.30.3 - 2026-10-22
 
 - **The repository-level validator tests skip in an installed copy instead of failing.**
