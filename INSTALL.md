@@ -21,7 +21,11 @@ pwsh -ExecutionPolicy Bypass -File .\install_windows.ps1
 pwsh -ExecutionPolicy Bypass -File .\verify.ps1
 ```
 
-默认安装到 `%USERPROFILE%\.agents\skills\bilibili-video-learning`，运行时位于 `.venv-gpu`。安装器启用 `asr` 与 `cuda-compat` 两个依赖档案；后者保留 OpenAI Whisper/PyTorch CUDA 回退，但 GPU 是否可用仍须通过 `nvidia-smi`、`torch.cuda.is_available()` 和实际 ASR 日志确认。
+默认安装到 `%USERPROFILE%\.agents\skills\bilibili-video-learning`，运行时位于 `.venv-gpu`。
+
+默认启用 `asr` 与 `cuda-compat` 两个依赖档案：后者保留 OpenAI Whisper/PyTorch CUDA 回退，代价是多下约 3GB。主路线 faster-whisper 已经能在 CUDA 上解码的机器可以改用 `-LeanRuntime`，只装 `asr + gpu-cuda12`（cuBLAS/cuDNN 轮子），安装时会打印实际使用的档位。
+
+确认 GPU 是否真的用上，看 `cli-anything-video-learning --json doctor status` 的 `gpu` 字段（`usable` 为真、`runtime_libraries` 里有 cublas/cudnn），再看转写结果里的 `device` 与 `device_fallback`：`device=cuda` 且 `device_fallback` 为空才算真走了 GPU。`-LeanRuntime` 下没有 torch，`torch.cuda.is_available()` 不适用。
 
 自定义目标：
 
@@ -82,5 +86,7 @@ Linux：
 ## 可恢复更新与回退
 
 两个安装器都会先把现有目标移动为同级的 `bilibili-video-learning.backup-<时间>`，再发布新源码，不会静默覆盖。验证失败时先保留现场；需要回退时退出正在使用该 Skill 的 Agent/终端，把当前目录改名，再把最近一次完整备份恢复为 `bilibili-video-learning`。
+
+`.venv-gpu` 会随旧目录一起进入备份，**不会**被搬到新目录 —— 所以重跑安装器就等于重建运行时（数 GB 下载）。确认新版本可用后再删 `*.backup-*`，否则每次更新都会多留一份约 2GB 的运行时。
 
 不要删除备份，直到新版本完成源码、运行时和代表性行为验证。正式安装更新优先通过 Skill Lifecycle Manager 的预览、精确批准、事务安装和回滚流程完成。
