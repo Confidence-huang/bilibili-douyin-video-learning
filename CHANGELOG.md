@@ -2,6 +2,53 @@
 
 All notable public changes are recorded here.
 
+## 1.30.2 - 2026-10-22
+
+- **Backend exit codes survive the CLI boundary.** `run_json_script()` turned every non-zero backend
+  return code into a bare `RuntimeError`, and `handle_error()` then exited 1 unconditionally, so the
+  documented 20/22/24/26/27 contract never reached a caller. A `BackendScriptError` carries the code
+  now, and `handle_error()` prefers it before falling back to `classify_failure()`.
+- **`--json` plus `-o` no longer writes the notice into stdout.** `verify_transcript.py` printed
+  `Saved to: …` on stdout in machine mode, so a caller's `json.loads()` failed and the CLI's own
+  `run_json_script()` rejected the output as non-JSON. The notice moves to stderr when `--json` or
+  `--fuse` is set, matching what `douyin_extract.py` and `hard_subtitle.py` already did.
+- **`--min-span-chars` applies before the fusion summary is computed.** Filtering the spans afterwards
+  left a report whose header said "1 conflict needs review" while `differing` was empty, so
+  `--fail-on-difference` still exited 0. The threshold is an argument of `fuse_transcripts()` now,
+  and when it filters every difference the verdict says so instead of contradicting the exit code.
+- **The Bilibili SSL retry actually retries.** `cmd.insert(1, "--legacy-server-connect")` put the flag
+  between `python` and `-m`, the interpreter rejected the command, the real SSL diagnostic was
+  replaced by an unrelated exit code, and the retry never ran. The flag goes after `yt_dlp`, and a
+  retry that fails reports itself instead of vanishing.
+- **Hard-subtitle frame sampling streams, and it has a budget.** `capture_output` held every raw gray
+  frame in memory before slicing — roughly 7.5GB for an hour of 1080p at 4fps, doubled by the copies,
+  which is an OOM on an 8GB machine. The production path reads frames from a `Popen` pipe, so memory
+  no longer scales with duration, and `MAX_SAMPLE_BYTES` (1GiB) fails with a hint to lower `--fps`,
+  narrow the band or split the file instead of dying.
+- **CUDA DLL directories keep their handles.** `os.add_dll_directory()` returns a handle that
+  CPython turns into `RemoveDllDirectory` once it is collected, so the registration the old code had
+  just made could disappear; the return value was dropped with a comment claiming otherwise. The
+  handles are held in a module-level list for the life of the process.
+- **The Douyin page-side fetch builds its URL as a JSON literal.** The play URL was concatenated into
+  a single-quoted JavaScript string and evaluated in an already-authenticated browser context, so a
+  quote in the URL was a syntax error and an injection surface aimed at the session's cookies. The
+  expression is generated with `json.dumps()`.
+- **Douyin source URLs go through `--` and must be http(s).** Both yt-dlp call sites appended the URL
+  last, so an input starting with `--` was parsed as an option such as `--exec`, and the module
+  validated no scheme at all. A shared `_append_source_url()` checks http/https and terminates option
+  parsing before the URL.
+- **A malformed transcript reports a schema error, not `AttributeError`.** `normalize_segments()`
+  called `segments[0].keys()` before checking the type, so a bare string segment raised past every
+  `ValueError` handler and the caller saw a raw traceback. The observed type is named in
+  `TranscriptSchemaError` now.
+- **Atomic writes survive a busy target and a power cut.** On Windows a target held open by Obsidian
+  or by a virus scanner makes `os.replace()` raise `PermissionError` on the spot; it is retried five
+  times with a short backoff before the real error is raised. `_fsync_directory()` also persists the
+  directory entry on POSIX, where a lost rename after a power cut was still possible.
+- **D27 is documented again.** The decision index referenced the targeted second-pass decode while
+  the body jumped from D26 to D28, so following the number landed on nothing.
+- Tests: **472 passing** offline cases (was 455), 1 skipped.
+
 ## 1.30.1 - 2026-10-06
 
 - **Douyin downloads no longer die before a path is even chosen.** `choose_downloaded_video()` read
