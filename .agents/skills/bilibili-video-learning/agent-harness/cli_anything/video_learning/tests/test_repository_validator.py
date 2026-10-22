@@ -15,6 +15,8 @@ import importlib.util  # 按真实路径加载根目录下的 tools/validate_rep
 import sys  # 把 scripts 目录加入搜索路径，保证校验器内部导入可用
 from pathlib import Path  # 稳定定位仓库根目录
 
+import pytest  # 安装布局下没有仓库根：整组跳过，而不是把安装态判成红
+
 
 SKILL_ROOT = Path(__file__).resolve().parents[4]
 REPO_ROOT = SKILL_ROOT.parents[2]                       # skill -> skills -> .agents -> 仓库根
@@ -23,8 +25,16 @@ if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
 
-def load_validator():
+def _repository_validator_path():
+    """仓库根下的校验器路径；安装布局里 `tools/` 不随包分发，返回 None。"""
     path = REPO_ROOT / "tools" / "validate_repository.py"
+    return path if path.is_file() else None
+
+
+def load_validator():
+    path = _repository_validator_path()
+    if path is None:                                    # 安装器只复制 Skill 子树，仓库级工具不在
+        pytest.skip(f"repository-level validator is not shipped in an installed Skill copy: {REPO_ROOT}")
     spec = importlib.util.spec_from_file_location("video_learning_test_validator", path)
     if spec is None or spec.loader is None:
         raise RuntimeError(f"Could not load validator: {path}")
@@ -58,3 +68,10 @@ def test_validator_rule_functions_are_callable():
     assert isinstance(validator.report_unevidenced_reference_entries(), list)
     assert isinstance(validator.report_prompt_template_versions(), list)
     assert isinstance(validator.report_unreferenced_scripts(), list)
+
+
+# --- 安装布局必须被识别成"没有校验器"，而不是抛 FileNotFoundError 把安装态判成红 ---
+def test_installed_copy_reports_missing_validator(monkeypatch, tmp_path):
+    monkeypatch.setattr(sys.modules[__name__], "REPO_ROOT", tmp_path)
+
+    assert _repository_validator_path() is None, "安装布局下应返回 None，由 load_validator 触发 skip"
