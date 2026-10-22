@@ -2,6 +2,18 @@
 
 All notable public changes are recorded here.
 
+## 1.30.5 - 2026-10-22
+
+- **`INSTALL.md` catches up with the installer.** Three statements were wrong or missing after
+  1.30.3: the Windows section never mentioned `-LeanRuntime` (so readers had no way to know about
+  the 3GB saving); it told people to check `torch.cuda.is_available()`, which does not exist under
+  `-LeanRuntime` and was never the right probe for a CTranslate2 pipeline; and the rollback section
+  did not warn that `.venv-gpu` moves into the `*.backup-*` directory, so re-running the installer
+  silently costs a full runtime rebuild.
+- **Docs only.** No script, dependency or runtime content changed. Released as a patch so the tag
+  carries the corrected install guide instead of lagging behind `main`.
+- Tests: **473 passing** offline cases (unchanged).
+
 ## 1.30.4 - 2026-10-22
 
 - **Documentation-only release.** Two README statements were misleading and are fixed: the quick
