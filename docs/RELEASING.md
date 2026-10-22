@@ -46,7 +46,10 @@ gh release create vX.Y.Z --notes-file <notes.md>
   `tools/validate_repository.py` 会拒绝不一致，漏一处就报错。
 - **`CHANGELOG.md` 顶部加一节**，标题格式 `## X.Y.Z - YYYY-MM-DD`，逐条写清问题、根因、改法。
 - **README 的离线用例数**必须与 CHANGELOG 里那句一致 —— 跑一次测试拿真实数字，不要照抄上一版。
-- **纯文档改动也走同一流程**，可以单独开 PR；它与发版是两件事，不要为了省一次 PR 而直接推 `main`。
+- **纯文档改动同样走 PR，并且合并后补一版 patch。** 目标只有一个：**tag 永远带着最新文档**，
+  谁检出某个 tag 都不会读到过期说明。维护类文档（`RELEASING.md`、`DECISIONS.md`）与
+  影响安装的文档（`README.md`、`INSTALL.md`）一视同仁 —— 不为"这算不算重要"再判断一次。
+  代价是版本号跳得快，这是刻意接受的：文档改动不影响安装物，patch 的语义仍然成立。
 - Release 正文至少包含：改了什么、验证命令与输出、`vX.Y.Z-1...vX.Y.Z` 对比链接。
 - 版本号语义与既往一致：`feat` 走 minor，纯 `fix` 走 patch，纯文档走 patch。
 
